@@ -21,6 +21,13 @@ d$Subj_ID    <- factor(d$Subj_ID)
 grid$Subj_ID <- factor(grid$Subj_ID, levels = levels(d$Subj_ID))
 d$y <- ((d$y + pi) %% (2*pi)) - pi
 
+# y in data.csv has been pre-shifted by theta_shift (variance-min) so the
+# seam falls in a data gap and the data looks Cartesian to the model.
+# Predictions on the eval grid are produced in the shifted frame and
+# unshifted at the end. Default 0 preserves backward compatibility.
+theta_shift <- if (!is.null(meta$theta_shift)) as.numeric(meta$theta_shift) else 0
+wrap <- function(x) ((x + pi) %% (2*pi)) - pi
+
 # Standardize Age so the b ~ N(0, 0.5) prior is reasonable. Without this,
 # raw Age (range ~7..80) combined with an identity-link vM model lets the
 # linear predictor span many wrap-arounds, and the prior pulls coefs to 0.
@@ -61,20 +68,21 @@ fit <- brm(
 
 # Population-marginal predictions (random effect = 0). For circular data,
 # take the CIRCULAR mean across posterior draws (linear colMeans averages
-# +pi and -pi to 0, which is wrong on the circle).
+# +pi and -pi to 0, which is wrong on the circle). Predictions are in
+# the SHIFTED frame; unshift by adding theta_shift before writing so the
+# CSV is on the original (-pi, pi] scale that the plot expects.
 pred <- posterior_epred(fit, newdata = grid, re_formula = NA)
-wrap <- function(x) ((x + pi) %% (2*pi)) - pi
 circ_mean <- function(M) atan2(colMeans(sin(M)), colMeans(cos(M)))
-# CI: rotate each draw by -circular-mean, take quantiles, rotate back, wrap
-mean_pred <- circ_mean(pred)
-res_draw  <- wrap(sweep(pred, 2, mean_pred, "-"))   # iter x N centered
+mean_pred_shifted <- circ_mean(pred)
+res_draw  <- wrap(sweep(pred, 2, mean_pred_shifted, "-"))  # offsets are rotation-invariant
 lo_off    <- apply(res_draw, 2, quantile, 0.025)
 hi_off    <- apply(res_draw, 2, quantile, 0.975)
+mean_pred <- wrap(mean_pred_shifted + theta_shift)
 out  <- data.frame(
   Age       = grid$Age,
   electrode = if ("electrode" %in% names(grid)) grid$electrode else 0,
   sex       = if ("sex"       %in% names(grid)) grid$sex       else 0,
-  mean      = wrap(mean_pred),
+  mean      = mean_pred,
   lo        = wrap(mean_pred + lo_off),
   hi        = wrap(mean_pred + hi_off)
 )

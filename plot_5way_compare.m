@@ -54,18 +54,26 @@ fprintf('formula: %s\n', formula_full);
 fprintf('n=%d  n_subj=%d  has_elec=%d\n', height(T), numel(unique(T.Subj_ID)), has_elec);
 
 % --- MATLAB fits ---
-m1 = fitcirc_lme(T, formula_full);
-m2 = fitlme_circ(T, formula_full);
+% Apply variance-minimizing shift before fitting so the data is on a
+% Cartesian-friendly frame (no seam crossings); unshift predictions
+% afterward so plots and stats are reported in the original frame.
+[theta_shift, ~] = circ_shift_min_var(T.(feat));
+T_shifted = T;
+T_shifted.(feat) = wrap_pi(T.(feat) - theta_shift);
+fprintf('theta_shift = %+.3f rad   (variance-minimizing shift applied to all methods)\n', theta_shift);
+
+m1 = fitcirc_lme(T_shifted, formula_full);
+m2 = fitlme_circ(T_shifted, formula_full);
 
 % Eval grid
 x_eval = (7:80)';
 nd_c = build_eval(T, x_eval, 0, has_elec, has_sex);  % central (or only level)
-y1c = m1.predict(nd_c);
-y2c = m2.predict(nd_c);
+y1c = wrap_pi(m1.predict(nd_c, 'Conditional', false) + theta_shift);
+y2c = wrap_pi(m2.predict(nd_c, 'Conditional', false) + theta_shift);
 if has_elec
     nd_f = build_eval(T, x_eval, 1, has_elec, has_sex);
-    y1f = m1.predict(nd_f);
-    y2f = m2.predict(nd_f);
+    y1f = wrap_pi(m1.predict(nd_f, 'Conditional', false) + theta_shift);
+    y2f = wrap_pi(m2.predict(nd_f, 'Conditional', false) + theta_shift);
 else
     nd_f = nd_c;  % no second electrode
     y1f = []; y2f = [];
@@ -111,7 +119,10 @@ end
 R_overall = abs(mean(exp(1i*T.(feat))));
 
 % --- Goodness-of-fit per method (training set, marginal predictions) ---
-stats = goodness_of_fit_table(T, feat, m1, m2, results_dir);
+% Pass the shifted table to MATLAB methods so residuals are computed in
+% the same frame the model was fit in; unshift not needed since
+% angular residuals are rotation-invariant.
+stats = goodness_of_fit_table(T_shifted, feat, m1, m2, results_dir);
 stats_str = strjoin(arrayfun(@(k) sprintf('%-30s LL=%9.1f  R^2=%5.3f  MAE=%5.3f', ...
     stats.method{k}, stats.LL(k), stats.R2_circ(k), stats.mae_angular(k)), ...
     1:height(stats), 'uni', 0), '\n');
@@ -156,10 +167,22 @@ if ~isempty(y3c), plot_one(ax, methods{3,1}, y3c, y3f, methods{3,4}, brms_c_age,
 if ~isempty(y4c), plot_one(ax, methods{4,1}, y4c, y4f, methods{4,4}, x_eval,     x_eval,     has_elec); end
 if ~isempty(y5c), plot_one(ax, methods{5,1}, y5c, y5f, methods{5,4}, x_eval,     x_eval,     has_elec); end
 
-xlabel(ax,'Age (years)'); ylabel(ax,sprintf('%s (rad)', feat));
-title(ax, sprintf('%s    n=%d / %d subj    R̄=%.2f    formula: %s', ...
-    feat, height(T), numel(unique(T.Subj_ID)), R_overall, formula_full),...
-    'Interpreter','none','FontSize',12);
+% Pretty-print feature label and pull mode-cluster id from the data so
+% the user can see at a glance which mode this dump came from. (MATLAB
+% renders raw '_' as a LaTeX subscript when interpreter is 'tex'; here
+% we use 'none' to show the literal text, but also map the most common
+% snake_case names to nicer human labels.)
+feat_pretty = pretty_feature_name(feat);
+cluster_str = '';
+if ismember('mode_cluster', T.Properties.VariableNames)
+    uc = unique(T.mode_cluster);
+    cluster_str = sprintf('   mode_cluster = %s', mat2str(uc(:)'));
+end
+xlabel(ax,'Age (years)'); ylabel(ax,sprintf('%s (rad)', feat_pretty));
+title(ax, sprintf('%s%s    n=%d / %d subj    R̄=%.2f    formula: %s    \\theta_{shift}=%+.2f rad', ...
+    feat_pretty, cluster_str, height(T), numel(unique(T.Subj_ID)), ...
+    R_overall, formula_full, theta_shift),...
+    'Interpreter','tex','FontSize',12);
 xlim(ax,[5 85]); ylim(ax,[-pi pi]);
 yticks(ax,[-pi -pi/2 0 pi/2 pi]);
 yticklabels(ax,{'-\pi','-\pi/2','0','\pi/2','\pi'});
@@ -339,5 +362,41 @@ if ismember('lo', sub.Properties.VariableNames)
 end
 if ismember('hi', sub.Properties.VariableNames)
     varargout{4} = sub.hi(ix);
+end
+end
+
+
+function w = wrap_pi(x)
+% Wrap to (-pi, pi].
+w = ((x + pi) - 2*pi*floor((x + pi) / (2*pi))) - pi;
+end
+
+
+function s = pretty_feature_name(feat)
+% Map the snake_case dump feature names to human-readable labels for
+% titles and y-axis. MATLAB's tex interpreter treats '_' as a subscript
+% command, so for tex-rendered titles we prefer these clean strings.
+switch lower(feat)
+    case 'pref_phase'
+        s = 'Phase Preference';
+    case 'phase'
+        s = 'SO Phase';
+    case 'theta'
+        s = 'Theta phase';
+    case 'stdfreq'
+        s = 'STD frequency';
+    case 'stdphase'
+        s = 'STD phase';
+    case 'stdpower'
+        s = 'STD power';
+    case 'sopower'
+        s = 'SO power';
+    case 'frequency'
+        s = 'Frequency';
+    case 'amplitude'
+        s = 'Amplitude';
+    otherwise
+        % Generic fallback: replace underscores with spaces
+        s = strrep(feat, '_', ' ');
 end
 end

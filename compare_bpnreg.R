@@ -23,6 +23,10 @@ d    <- read_csv("data.csv",      show_col_types = FALSE)
 grid <- read_csv("eval_grid.csv", show_col_types = FALSE)
 meta <- fromJSON("meta.json")
 
+# y is pre-shifted in data.csv; unshift predictions before writing.
+theta_shift <- if (!is.null(meta$theta_shift)) as.numeric(meta$theta_shift) else 0
+wrap <- function(x) ((x + pi) %% (2*pi)) - pi
+
 # bpnme needs a numeric grouping column and y on [0, 2*pi)
 d$Subj_ID <- as.numeric(factor(d$Subj_ID))
 d$y       <- d$y %% (2*pi)
@@ -106,18 +110,18 @@ yhat_grid_mu  <- circ_row_mean(ang_grid)
 yhat_train_mu <- circ_row_mean(ang_train)
 
 # 95% CI via centered residual quantiles, then re-shift
-wrap <- function(x) ((x + pi) %% (2*pi)) - pi
 res_grid <- wrap(ang_grid - yhat_grid_mu)            # N x iter
 lo_off   <- apply(res_grid, 1, quantile, 0.025)
 hi_off   <- apply(res_grid, 1, quantile, 0.975)
 
+mean_unshift <- wrap(yhat_grid_mu + theta_shift)
 out <- data.frame(
   Age       = grid$Age,
   electrode = if ("electrode" %in% names(grid)) grid$electrode else 0,
   sex       = if ("sex"       %in% names(grid)) grid$sex       else 0,
-  mean      = wrap(yhat_grid_mu),
-  lo        = wrap(yhat_grid_mu + lo_off),
-  hi        = wrap(yhat_grid_mu + hi_off)
+  mean      = mean_unshift,
+  lo        = wrap(mean_unshift + lo_off),
+  hi        = wrap(mean_unshift + hi_off)
 )
 write_csv(out, "bpnreg_predictions.csv")
 

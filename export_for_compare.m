@@ -43,9 +43,13 @@ if has_sex && numel(unique(T.sex)) < 2
     has_sex = false;
 end
 
-% Rename response to 'y' for downstream tools
+% Rename response to 'y' and apply variance-minimizing shift before
+% writing. All comparison methods fit on y_shifted (Cartesian-friendly
+% with the seam in the data gap) and unshift predictions back to the
+% original frame using theta_shift from meta.json.
+[theta_shift, y_shifted] = circ_shift_min_var(T.(feat));
 out = table();
-out.y       = T.(feat);
+out.y       = y_shifted;
 out.Age     = T.Age;
 if has_elec, out.electrode = T.electrode; end
 if has_sex,  out.sex       = T.sex; end
@@ -80,10 +84,11 @@ if has_sex,  rhs = [rhs ' + sex']; end
 formula_full = sprintf('y ~ %s + (1|Subj_ID)', rhs);
 
 fid = fopen(fullfile(results_dir, 'meta.json'),'w');
-fprintf(fid, '{"formula":"%s","x_col":"Age","feature":"%s","order":%d,"has_electrode":%d,"has_sex":%d,"dump":"%s"}\n', ...
-    formula_full, feat, ord, has_elec, has_sex, dump_file);
+fprintf(fid, ['{"formula":"%s","x_col":"Age","feature":"%s","order":%d,', ...
+              '"has_electrode":%d,"has_sex":%d,"theta_shift":%.10g,"dump":"%s"}\n'], ...
+    formula_full, feat, ord, has_elec, has_sex, theta_shift, dump_file);
 fclose(fid);
 
-fprintf('Exported %s (n=%d, has_elec=%d) -> %s\n  full formula: %s\n', ...
-    dump_file, height(out), has_elec, results_dir, formula_full);
+fprintf('Exported %s (n=%d, has_elec=%d, theta_shift=%+.3f) -> %s\n  full formula: %s\n', ...
+    dump_file, height(out), has_elec, theta_shift, results_dir, formula_full);
 end
