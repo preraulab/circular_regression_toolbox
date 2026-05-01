@@ -79,6 +79,13 @@ else
     y1f = []; y2f = [];
 end
 
+% Persist MATLAB method predictions to CSV in the same shape as the R
+% scripts so per_method_summary can pick them up off disk.
+write_matlab_pred_csv(fullfile(results_dir, 'fitcirc_lme_predictions.csv'), ...
+    x_eval, y1c, y1f, has_elec);
+write_matlab_pred_csv(fullfile(results_dir, 'fitlme_circ_predictions.csv'), ...
+    x_eval, y2c, y2f, has_elec);
+
 % --- R predictions (graceful degradation if a method failed) ---
 brms   = read_pred(fullfile(results_dir,'brms_predictions.csv'));
 lme4   = read_pred(fullfile(results_dir,'lme4_predictions.csv'));
@@ -136,21 +143,21 @@ hold(ax,'on');
 color_central = [0.95 0.55 0.16];
 color_frontal = [0.00 0.59 1.00];
 
-% Data scatter
+% Data scatter (each call duplicates points at +-2*pi for wraparound viz)
 if has_elec
-    scatter(ax, T.Age(T.electrode==0), T.(feat)(T.electrode==0), 5, color_central, 'filled', 'MarkerFaceAlpha', 0.15, 'DisplayName','data central');
-    scatter(ax, T.Age(T.electrode==1), T.(feat)(T.electrode==1), 5, color_frontal, 'filled', 'MarkerFaceAlpha', 0.15, 'DisplayName','data frontal');
+    scatter_circ(ax, T.Age(T.electrode==0), T.(feat)(T.electrode==0), color_central, 'data central');
+    scatter_circ(ax, T.Age(T.electrode==1), T.(feat)(T.electrode==1), color_frontal, 'data frontal');
     plot_bin(ax, bin_centers, mu_c, lo_c, hi_c, color_central);
     plot_bin(ax, bin_centers, mu_f, lo_f, hi_f, color_frontal);
 else
-    scatter(ax, T.Age, T.(feat), 5, [.5 .5 .5], 'filled', 'MarkerFaceAlpha', 0.18, 'DisplayName','data');
+    scatter_circ(ax, T.Age, T.(feat), [.5 .5 .5], 'data');
     plot_bin(ax, bin_centers, mu_c, lo_c, hi_c, [0 0 0]);
 end
 
-% brms 95% CI (central only, to keep ribbon legible)
+% brms 95% CI (central only, to keep ribbon legible) — drawn in
+% triplicate so the wraparound is continuous.
 if ~isempty(brms_c_age) && ~isempty(y3c_lo)
-    fill(ax, [brms_c_age; flipud(brms_c_age)], [y3c_lo; flipud(y3c_hi)], ...
-         color_central, 'EdgeColor','none', 'FaceAlpha', 0.15, 'DisplayName','brms 95% CI (central)');
+    fill_ci_circ(ax, brms_c_age, y3c_lo, y3c_hi, color_central, 'brms 95% CI (central)');
 end
 
 % Trajectories — central solid, frontal dashed for each method
@@ -219,11 +226,64 @@ end
 
 function plot_one(ax, label, yc, yf, col, age_x_c, age_x_f, has_elec_local)
 if has_elec_local
-    plot(ax, age_x_c, yc, '-',  'Color', col, 'LineWidth', 2.0, 'DisplayName', [label ' (central)']);
-    plot(ax, age_x_f, yf, '--', 'Color', col, 'LineWidth', 2.0, 'DisplayName', [label ' (frontal)']);
+    plot_circ_line(ax, age_x_c, yc, col, '-',  2.0, [label ' (central)']);
+    plot_circ_line(ax, age_x_f, yf, col, '--', 2.0, [label ' (frontal)']);
 else
-    plot(ax, age_x_c, yc, '-', 'Color', col, 'LineWidth', 2.0, 'DisplayName', label);
+    plot_circ_line(ax, age_x_c, yc, col, '-',  2.0, label);
 end
+end
+
+
+function plot_circ_line(ax, x, y, col, style, lw, name)
+% Draw the same line at y, y+2*pi, y-2*pi so the wraparound is
+% continuous when the y-axis is clipped to (-pi, pi]. Insert NaN at
+% any seam crossing within a copy so the line breaks rather than
+% drawing a steep across-the-axis segment. Only the baseline copy
+% gets a legend entry (HandleVisibility hides the others).
+[xb, yb] = break_at_jumps(x(:), y(:));
+plot(ax, xb, yb,           style, 'Color', col, 'LineWidth', lw, 'DisplayName', name);
+plot(ax, xb, yb + 2*pi,    style, 'Color', col, 'LineWidth', lw, 'HandleVisibility','off');
+plot(ax, xb, yb - 2*pi,    style, 'Color', col, 'LineWidth', lw, 'HandleVisibility','off');
+end
+
+
+function [xo, yo] = break_at_jumps(x, y)
+% Insert NaN whenever |diff(y)| > pi so the plotting routine doesn't
+% draw a vertical line across the seam.
+xo = x; yo = y;
+d  = abs(diff(y));
+jumps = find(d > pi);
+% Insert in reverse so indices stay valid
+for j = sort(jumps,'descend')'
+    xo = [xo(1:j); NaN; xo(j+1:end)];
+    yo = [yo(1:j); NaN; yo(j+1:end)];
+end
+end
+
+
+function scatter_circ(ax, x, y, col, name)
+% Three-copy scatter for wraparound continuity.
+scatter(ax, x, y,        5, col, 'filled', 'MarkerFaceAlpha', 0.15, 'DisplayName', name);
+scatter(ax, x, y + 2*pi, 5, col, 'filled', 'MarkerFaceAlpha', 0.15, 'HandleVisibility','off');
+scatter(ax, x, y - 2*pi, 5, col, 'filled', 'MarkerFaceAlpha', 0.15, 'HandleVisibility','off');
+end
+
+
+function fill_ci_circ(ax, x, lo, hi, col, name)
+% Three-copy filled CI ribbon. NOTE: when lo > hi (wrap inversion), we
+% split the ribbon into two halves so neither degenerates into a
+% line spanning the whole axis. Simpler treatment: skip the ribbon
+% on points where hi - lo > pi (those are too uncertain to draw).
+mask = (hi - lo) <= pi;
+if ~any(mask), return; end
+x = x(mask); lo = lo(mask); hi = hi(mask);
+[xb, lob] = break_at_jumps(x(:), lo(:));
+[~,  hib] = break_at_jumps(x(:), hi(:));
+xring = [xb; flipud(xb)];
+yring = [lob; flipud(hib)];
+fill(ax, xring, yring,         col, 'EdgeColor','none', 'FaceAlpha', 0.13, 'DisplayName', name);
+fill(ax, xring, yring + 2*pi,  col, 'EdgeColor','none', 'FaceAlpha', 0.13, 'HandleVisibility','off');
+fill(ax, xring, yring - 2*pi,  col, 'EdgeColor','none', 'FaceAlpha', 0.13, 'HandleVisibility','off');
 end
 
 
@@ -256,17 +316,21 @@ end
 
 
 function plot_bin(ax, bc, mu, lo, hi, color)
-% Draw binned-circular-mean error bars. Skip bars where the CI half-width
-% exceeds pi/2 — those bins have too much circular dispersion for a
-% Cartesian vertical bar to make sense (it would span most of [-pi,pi]
-% and dominate the figure visually). Plot the dot regardless so the bin
-% mean is still shown.
-for b = 1:numel(bc)
-    if ~isnan(lo(b)) && (hi(b) - lo(b)) <= pi
-        line(ax, [bc(b) bc(b)], [lo(b) hi(b)], 'Color', color, 'LineWidth', 1.0, 'HandleVisibility','off');
+% Draw binned-circular-mean error bars in triplicate (offset 0, +-2*pi)
+% so wraparound stays visible after y-axis clip. Skip bars where the CI
+% half-width exceeds pi/2 — those bins have too much circular dispersion
+% for a vertical bar to be meaningful.
+for off = [0, 2*pi, -2*pi]
+    for b = 1:numel(bc)
+        if ~isnan(lo(b)) && (hi(b) - lo(b)) <= pi
+            line(ax, [bc(b) bc(b)], [lo(b) hi(b)] + off, ...
+                 'Color', color, 'LineWidth', 1.0, 'HandleVisibility','off');
+        end
     end
+    plot(ax, bc, mu + off, 'o', 'MarkerSize', 5, ...
+         'MarkerFaceColor', color, 'MarkerEdgeColor', color, ...
+         'HandleVisibility','off');
 end
-plot(ax, bc, mu, 'o', 'MarkerSize', 5, 'MarkerFaceColor', color, 'MarkerEdgeColor', color, 'HandleVisibility','off');
 end
 
 
@@ -379,6 +443,24 @@ end
 function w = wrap_pi(x)
 % Wrap to (-pi, pi].
 w = ((x + pi) - 2*pi*floor((x + pi) / (2*pi))) - pi;
+end
+
+
+function write_matlab_pred_csv(path, x_eval, yc, yf, has_elec)
+% Mirror the R-script CSV layout (Age, electrode, sex, mean) so
+% per_method_summary can read MATLAB predictions the same way.
+ages_c = x_eval(:);
+if has_elec && ~isempty(yf)
+    Age       = [ages_c; ages_c];
+    electrode = [zeros(numel(ages_c),1); ones(numel(ages_c),1)];
+    mean_col  = [yc(:); yf(:)];
+else
+    Age       = ages_c;
+    electrode = zeros(numel(ages_c),1);
+    mean_col  = yc(:);
+end
+T = table(Age, electrode, mean_col, 'VariableNames', {'Age','electrode','mean'});
+writetable(T, path);
 end
 
 
