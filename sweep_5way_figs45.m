@@ -71,7 +71,9 @@ combos = [ ...
 
 % De-dupe combos by (feat, cluster); duplicates resolve to whichever
 % dump matches first.
-[~, idx] = unique(strcat({combos{:,1}}, '_', cellfun(@num2str, combos(:,2), 'uni', 0)), 'stable');
+keys = arrayfun(@(k) sprintf('%s_%d', combos{k,1}, combos{k,2}), ...
+    1:size(combos,1), 'UniformOutput', false);
+[~, idx] = unique(keys, 'stable');
 combos = combos(idx, :);
 n_combo = size(combos, 1);
 fprintf('Running %d (feature, cluster) combos at order=%d\n', n_combo, target_order);
@@ -91,17 +93,26 @@ for ii = 1:n_combo
     dump_path = candidates(1).path;
     [~, base, ~] = fileparts(dump_path);
     rd = fullfile(results_root, base);
-    fprintf('  [%2d/%2d] %-12s cluster %d  -> %s\n', ii, n_combo, feat, cluster, base);
-    try
-        run_compare_one(dump_path, rd);
+    have_all = exist(fullfile(rd, 'fit_stats.csv'), 'file') && ...
+               exist(fullfile(rd, 'fitcirc_lme_predictions.csv'), 'file') && ...
+               exist(fullfile(rd, 'brms_predictions.csv'), 'file');
+    if have_all
+        fprintf('  [%2d/%2d] %-12s cluster %d  -> %s   (cached)\n', ii, n_combo, feat, cluster, base);
         ok = true;
         fit_stats = readtable(fullfile(rd, 'fit_stats.csv'));
-    catch ME
-        fprintf('         FAILED: %s\n', ME.message);
-        ok = false; fit_stats = [];
+    else
+        fprintf('  [%2d/%2d] %-12s cluster %d  -> %s\n', ii, n_combo, feat, cluster, base);
+        try
+            run_compare_one(dump_path, rd);
+            ok = true;
+            fit_stats = readtable(fullfile(rd, 'fit_stats.csv'));
+        catch ME
+            fprintf('         FAILED: %s\n', ME.message);
+            ok = false; fit_stats = [];
+        end
     end
-    runs(end+1) = struct('combo', combos(ii,:), 'results_dir', rd, ...
-                         'success', ok, 'stats', fit_stats); %#ok<AGROW>
+    runs(end+1) = struct('combo', {combos(ii,:)}, 'results_dir', rd, ...
+                         'success', ok, 'stats', {fit_stats}); %#ok<AGROW>
 end
 
 % --- Save the run manifest ---

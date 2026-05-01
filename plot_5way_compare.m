@@ -270,20 +270,55 @@ end
 
 
 function fill_ci_circ(ax, x, lo, hi, col, name)
-% Three-copy filled CI ribbon. NOTE: when lo > hi (wrap inversion), we
-% split the ribbon into two halves so neither degenerates into a
-% line spanning the whole axis. Simpler treatment: skip the ribbon
-% on points where hi - lo > pi (those are too uncertain to draw).
+% Three-copy filled CI ribbon. We filter out points whose CI half-width
+% exceeds pi/2 (too uncertain to draw a meaningful interval on the
+% circle), then split the remaining points into contiguous "runs"
+% wherever an x-gap appears, drawing each run as a separate fill.
 mask = (hi - lo) <= pi;
 if ~any(mask), return; end
 x = x(mask); lo = lo(mask); hi = hi(mask);
-[xb, lob] = break_at_jumps(x(:), lo(:));
-[~,  hib] = break_at_jumps(x(:), hi(:));
-xring = [xb; flipud(xb)];
-yring = [lob; flipud(hib)];
-fill(ax, xring, yring,         col, 'EdgeColor','none', 'FaceAlpha', 0.13, 'DisplayName', name);
-fill(ax, xring, yring + 2*pi,  col, 'EdgeColor','none', 'FaceAlpha', 0.13, 'HandleVisibility','off');
-fill(ax, xring, yring - 2*pi,  col, 'EdgeColor','none', 'FaceAlpha', 0.13, 'HandleVisibility','off');
+
+% Split into contiguous runs (where consecutive x are adjacent in the
+% original grid). For our 1-year x grid that means diff(x) == 1.
+runs = split_runs(x, lo, hi);
+gave_legend = false;
+for r = 1:numel(runs)
+    xr = runs(r).x; lr = runs(r).lo; hr = runs(r).hi;
+    if numel(xr) < 2, continue; end
+    xring = [xr; flipud(xr)];
+    yring = [lr; flipud(hr)];
+    if ~gave_legend
+        fill(ax, xring, yring,        col, 'EdgeColor','none', 'FaceAlpha', 0.13, 'DisplayName', name);
+        gave_legend = true;
+    else
+        fill(ax, xring, yring,        col, 'EdgeColor','none', 'FaceAlpha', 0.13, 'HandleVisibility','off');
+    end
+    fill(ax, xring, yring + 2*pi, col, 'EdgeColor','none', 'FaceAlpha', 0.13, 'HandleVisibility','off');
+    fill(ax, xring, yring - 2*pi, col, 'EdgeColor','none', 'FaceAlpha', 0.13, 'HandleVisibility','off');
+end
+end
+
+
+function runs = split_runs(x, lo, hi)
+% Split (x, lo, hi) into contiguous runs at x-gaps and at NaN/seam
+% breaks in lo or hi.
+x = x(:); lo = lo(:); hi = hi(:);
+break_after = false(numel(x),1);
+break_after(end) = true;
+if numel(x) >= 2
+    big_gap = diff(x) > 1.5;                    % > 1.5 yr gap
+    seam_lo = abs(diff(lo)) > pi;
+    seam_hi = abs(diff(hi)) > pi;
+    break_after(1:end-1) = break_after(1:end-1) | big_gap | seam_lo | seam_hi;
+end
+ends   = find(break_after);
+starts = [1; ends(1:end-1)+1];
+runs = struct('x',{},'lo',{},'hi',{});
+for k = 1:numel(starts)
+    a = starts(k); b = ends(k);
+    if b - a < 1, continue; end
+    runs(end+1) = struct('x', x(a:b), 'lo', lo(a:b), 'hi', hi(a:b)); %#ok<AGROW>
+end
 end
 
 

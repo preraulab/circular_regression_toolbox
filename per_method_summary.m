@@ -205,11 +205,35 @@ function fill_ci_circ(ax, x, lo, hi, col)
 mask = (hi - lo) <= pi;
 if ~any(mask), return; end
 x = x(mask); lo = lo(mask); hi = hi(mask);
-[xb, lob] = break_at_jumps(x(:), lo(:));
-[~,  hib] = break_at_jumps(x(:), hi(:));
-xring = [xb; flipud(xb)];
-yring = [lob; flipud(hib)];
-fill(ax, xring, yring,        col, 'EdgeColor','none', 'FaceAlpha', 0.13, 'HandleVisibility','off');
-fill(ax, xring, yring + 2*pi, col, 'EdgeColor','none', 'FaceAlpha', 0.13, 'HandleVisibility','off');
-fill(ax, xring, yring - 2*pi, col, 'EdgeColor','none', 'FaceAlpha', 0.13, 'HandleVisibility','off');
+runs = split_runs(x, lo, hi);
+for r = 1:numel(runs)
+    xr = runs(r).x; lr = runs(r).lo; hr = runs(r).hi;
+    if numel(xr) < 2, continue; end
+    xring = [xr; flipud(xr)];
+    yring = [lr; flipud(hr)];
+    fill(ax, xring, yring,        col, 'EdgeColor','none', 'FaceAlpha', 0.13, 'HandleVisibility','off');
+    fill(ax, xring, yring + 2*pi, col, 'EdgeColor','none', 'FaceAlpha', 0.13, 'HandleVisibility','off');
+    fill(ax, xring, yring - 2*pi, col, 'EdgeColor','none', 'FaceAlpha', 0.13, 'HandleVisibility','off');
+end
+end
+
+
+function runs = split_runs(x, lo, hi)
+x = x(:); lo = lo(:); hi = hi(:);
+break_after = false(numel(x),1);
+break_after(end) = true;
+if numel(x) >= 2
+    big_gap = diff(x) > 1.5;
+    seam_lo = abs(diff(lo)) > pi;
+    seam_hi = abs(diff(hi)) > pi;
+    break_after(1:end-1) = break_after(1:end-1) | big_gap | seam_lo | seam_hi;
+end
+ends   = find(break_after);
+starts = [1; ends(1:end-1)+1];
+runs = struct('x',{},'lo',{},'hi',{});
+for k = 1:numel(starts)
+    a = starts(k); b = ends(k);
+    if b - a < 1, continue; end
+    runs(end+1) = struct('x', x(a:b), 'lo', lo(a:b), 'hi', hi(a:b)); %#ok<AGROW>
+end
 end
