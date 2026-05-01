@@ -31,25 +31,34 @@ wrap <- function(x) ((x + pi) %% (2*pi)) - pi
 d$Subj_ID <- as.numeric(factor(d$Subj_ID))
 d$y       <- d$y %% (2*pi)
 
-# Expand polynomial Age terms so the formula can be parsed by bpnme.
+# Expand polynomial Age terms AND any electrode/sex interactions
+# explicitly into pre-computed columns. bpnme's formula parser does
+# not reliably expand 'A:B' interactions on numeric covariates -- when
+# we pass them in formula form, the interaction terms get silently
+# dropped from the fitted beta1/beta2 matrices, so predictions end up
+# identical for both electrodes. Pre-multiplying sidesteps that.
 ord <- meta$order
+add_col <- function(df, name, vals) { df[[name]] <- vals; df }
 for (k in seq_len(ord)) {
   nm <- if (k == 1) "Age" else paste0("Age_p", k)
-  d[[nm]]    <- d$Age^k
-  grid[[nm]] <- grid$Age^k
+  d   <- add_col(d,   nm, d$Age^k)
+  grid<- add_col(grid,nm, grid$Age^k)
 }
 
 rhs_terms <- character(0)
 if (ord >= 1) rhs_terms <- c(rhs_terms, "Age")
 if (ord >= 2) rhs_terms <- c(rhs_terms, sprintf("Age_p%d", 2:ord))
-if (isTRUE(meta$has_electrode)) {
+if (as.logical(meta$has_electrode)) {
   rhs_terms <- c(rhs_terms, "electrode")
   for (k in seq_len(ord)) {
-    nm <- if (k == 1) "Age" else paste0("Age_p", k)
-    rhs_terms <- c(rhs_terms, sprintf("%s:electrode", nm))
+    age_nm <- if (k == 1) "Age" else paste0("Age_p", k)
+    int_nm <- paste0(age_nm, "_x_elec")
+    d    <- add_col(d,    int_nm, d[[age_nm]]    * d$electrode)
+    grid <- add_col(grid, int_nm, grid[[age_nm]] * grid$electrode)
+    rhs_terms <- c(rhs_terms, int_nm)
   }
 }
-if (isTRUE(meta$has_sex)) rhs_terms <- c(rhs_terms, "sex")
+if (as.logical(meta$has_sex)) rhs_terms <- c(rhs_terms, "sex")
 if (length(rhs_terms) == 0) rhs_terms <- "1"
 
 fml_str <- sprintf("y ~ %s + (1|Subj_ID)", paste(rhs_terms, collapse = " + "))
