@@ -21,13 +21,22 @@ d$Subj_ID    <- factor(d$Subj_ID)
 grid$Subj_ID <- factor(grid$Subj_ID, levels = levels(d$Subj_ID))
 d$y <- ((d$y + pi) %% (2*pi)) - pi
 
-cat("brms: n=", nrow(d), " subj=", nlevels(d$Subj_ID),
-    " has_elec=", meta$has_electrode, " has_sex=", meta$has_sex, "\n")
+# Standardize Age so the b ~ N(0, 0.5) prior is reasonable. Without this,
+# raw Age (range ~7..80) combined with an identity-link vM model lets the
+# linear predictor span many wrap-arounds, and the prior pulls coefs to 0.
+age_mu <- mean(d$Age); age_sd <- sd(d$Age)
+d$Age_z    <- (d$Age - age_mu) / age_sd
+grid$Age_z <- (grid$Age - age_mu) / age_sd
 
-# Translate "1 + Age^k * electrode + sex" -> brms-friendly
+cat("brms: n=", nrow(d), " subj=", nlevels(d$Subj_ID),
+    " has_elec=", meta$has_electrode, " has_sex=", meta$has_sex,
+    "  Age z-scored: mean=", round(age_mu,2), " sd=", round(age_sd,2), "\n")
+
+# Translate "1 + Age^k * electrode + sex" -> brms-friendly, swapping in Age_z.
 rhs <- sub("^y\\s*~\\s*", "", meta$formula)
 rhs <- sub("\\+\\s*\\(1\\s*\\|\\s*Subj_ID\\)\\s*$", "", rhs)
-rhs <- gsub("Age\\^(\\d+)", "poly(Age, \\1, raw = TRUE)", rhs)
+rhs <- gsub("Age\\^(\\d+)", "poly(Age_z, \\1, raw = TRUE)", rhs)
+rhs <- gsub("\\bAge\\b", "Age_z", rhs)
 fml_str <- sprintf("y ~ %s + (1|Subj_ID)", trimws(rhs))
 cat("brms formula:", fml_str, "\n")
 
@@ -71,9 +80,10 @@ write_csv(out, "brms_predictions.csv")
 #   - mean angular residual |y - yhat| (wrapped)
 #   - circular R^2 = 1 - SSE_circ / SST_circ
 yhat_train <- posterior_epred(fit, re_formula = NA)  # iter x N
-yhat_mean  <- colMeans(yhat_train)
-wrap <- function(x) ((x + pi) %% (2*pi)) - pi
-ang_resid <- wrap(d$y - yhat_mean)
+# Circular posterior mean per column (linear colMeans averages +pi/-pi to 0
+# and would break on the wrap-around).
+yhat_mean  <- circ_mean(yhat_train)
+ang_resid  <- wrap(d$y - yhat_mean)
 mu_y      <- atan2(mean(sin(d$y)), mean(cos(d$y)))
 sse       <- sum(1 - cos(ang_resid))
 sst       <- sum(1 - cos(wrap(d$y - mu_y)))

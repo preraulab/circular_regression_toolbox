@@ -71,27 +71,29 @@ else
     y1f = []; y2f = [];
 end
 
-% --- R predictions ---
-brms = readtable(fullfile(results_dir,'brms_predictions.csv'));
-lme4 = readtable(fullfile(results_dir,'lme4_predictions.csv'));
-bpnreg = readtable(fullfile(results_dir,'bpnreg_predictions.csv'));
+% --- R predictions (graceful degradation if a method failed) ---
+brms   = read_pred(fullfile(results_dir,'brms_predictions.csv'));
+lme4   = read_pred(fullfile(results_dir,'lme4_predictions.csv'));
+bpnreg = read_pred(fullfile(results_dir,'bpnreg_predictions.csv'));
 
-% Pick available electrode levels (might be only 0 if monolevel)
-elec_levels = unique(brms.electrode);
+% Decide electrode levels off whatever R outputs we have, else MATLAB grid
+ref = brms; if isempty(ref), ref = lme4; end; if isempty(ref), ref = bpnreg; end
+if ~isempty(ref)
+    elec_levels = unique(ref.electrode);
+else
+    elec_levels = 0;
+end
 elec0 = elec_levels(1);
-[brms_c_age, ix_c] = sort(brms.Age(brms.electrode==elec0));
-y3c    = brms.mean(brms.electrode==elec0); y3c    = y3c(ix_c);
-y3c_lo = brms.lo(brms.electrode==elec0);   y3c_lo = y3c_lo(ix_c);
-y3c_hi = brms.hi(brms.electrode==elec0);   y3c_hi = y3c_hi(ix_c);
-y4c = lme4.yhat(lme4.electrode==elec0);
-y5c = bpnreg.mean(bpnreg.electrode==elec0);
+
+[y3c, brms_c_age, y3c_lo, y3c_hi] = pick_pred(brms, elec0, 'mean');
+y4c                             = pick_pred(lme4,   elec0, 'yhat');
+y5c                             = pick_pred(bpnreg, elec0, 'mean');
 
 if numel(elec_levels) >= 2
     elec1 = elec_levels(2);
-    [brms_f_age, ix_f] = sort(brms.Age(brms.electrode==elec1));
-    y3f = brms.mean(brms.electrode==elec1); y3f = y3f(ix_f);
-    y4f = lme4.yhat(lme4.electrode==elec1);
-    y5f = bpnreg.mean(bpnreg.electrode==elec1);
+    [y3f, brms_f_age]           = pick_pred(brms, elec1, 'mean');
+    y4f                         = pick_pred(lme4, elec1, 'yhat');
+    y5f                         = pick_pred(bpnreg, elec1, 'mean');
 else
     brms_f_age = []; y3f = []; y4f = []; y5f = [];
 end
@@ -134,8 +136,10 @@ else
 end
 
 % brms 95% CI (central only, to keep ribbon legible)
-fill(ax, [brms_c_age; flipud(brms_c_age)], [y3c_lo; flipud(y3c_hi)], ...
-     color_central, 'EdgeColor','none', 'FaceAlpha', 0.15, 'DisplayName','brms 95% CI (central)');
+if ~isempty(brms_c_age) && ~isempty(y3c_lo)
+    fill(ax, [brms_c_age; flipud(brms_c_age)], [y3c_lo; flipud(y3c_hi)], ...
+         color_central, 'EdgeColor','none', 'FaceAlpha', 0.15, 'DisplayName','brms 95% CI (central)');
+end
 
 % Trajectories — central solid, frontal dashed for each method
 methods = {
@@ -147,9 +151,9 @@ methods = {
 
 plot_one(ax, methods{1,1}, y1c, y1f, methods{1,4}, x_eval,     x_eval,     has_elec);
 plot_one(ax, methods{2,1}, y2c, y2f, methods{2,4}, x_eval,     x_eval,     has_elec);
-plot_one(ax, methods{3,1}, y3c, y3f, methods{3,4}, brms_c_age, brms_f_age, has_elec);
-plot_one(ax, methods{4,1}, y4c, y4f, methods{4,4}, x_eval,     x_eval,     has_elec);
-plot_one(ax, methods{5,1}, y5c, y5f, methods{5,4}, x_eval,     x_eval,     has_elec);
+if ~isempty(y3c), plot_one(ax, methods{3,1}, y3c, y3f, methods{3,4}, brms_c_age, brms_f_age, has_elec); end
+if ~isempty(y4c), plot_one(ax, methods{4,1}, y4c, y4f, methods{4,4}, x_eval,     x_eval,     has_elec); end
+if ~isempty(y5c), plot_one(ax, methods{5,1}, y5c, y5f, methods{5,4}, x_eval,     x_eval,     has_elec); end
 
 xlabel(ax,'Age (years)'); ylabel(ax,sprintf('%s (rad)', feat));
 title(ax, sprintf('%s    n=%d / %d subj    R̄=%.2f    formula: %s', ...
@@ -259,7 +263,8 @@ bpnreg_s = read_or_nan(fullfile(results_dir,'bpnreg_stats.json'));
 
 LL_brms   = field_or_nan(brms_s, 'LL');
 LL_lme4   = field_or_nan(lme4_s, 'LL_sin_plus_cos');
-LL_bpn    = field_or_nan(bpnreg_s, 'lppd');
+LL_bpn    = field_or_nan(bpnreg_s, 'LL');
+if isnan(LL_bpn), LL_bpn = field_or_nan(bpnreg_s, 'lppd'); end
 
 S = table();
 S.method      = {'MATLAB fitcirc_lme'; 'MATLAB fitlme_circ'; 'R brms vM-GLMM'; 'R lme4 sin/cos'; 'R bpnreg projected-normal'};
@@ -283,5 +288,41 @@ if exist(path,'file')
     s = jsondecode(fileread(path));
 else
     s = struct('LL',NaN,'R2_circ',NaN,'mae_angular',NaN);
+end
+end
+
+
+function tbl = read_pred(path)
+% Return a prediction table or [] if the file doesn't exist or is empty.
+if exist(path,'file')
+    tbl = readtable(path);
+    if height(tbl) == 0, tbl = []; end
+else
+    tbl = [];
+end
+end
+
+
+function varargout = pick_pred(tbl, elec, value_col)
+% Return [yhat, age, lo, hi] for the requested electrode level,
+% sorted by Age, with empty arrays if tbl is empty.
+varargout = {[], [], [], []};
+if isempty(tbl), return; end
+if ismember('electrode', tbl.Properties.VariableNames)
+    mask = tbl.electrode == elec;
+else
+    mask = true(height(tbl),1);
+end
+if ~any(mask), return; end
+sub = tbl(mask, :);
+[age, ix] = sort(sub.Age);
+y = sub.(value_col)(ix);
+varargout{1} = y;
+varargout{2} = age;
+if ismember('lo', sub.Properties.VariableNames)
+    varargout{3} = sub.lo(ix);
+end
+if ismember('hi', sub.Properties.VariableNames)
+    varargout{4} = sub.hi(ix);
 end
 end
