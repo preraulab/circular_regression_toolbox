@@ -168,31 +168,41 @@ if ~isempty(y4c), plot_one(ax, methods{4,1}, y4c, y4f, methods{4,4}, x_eval,    
 if ~isempty(y5c), plot_one(ax, methods{5,1}, y5c, y5f, methods{5,4}, x_eval,     x_eval,     has_elec); end
 
 % Pretty-print feature label and pull mode-cluster id from the data so
-% the user can see at a glance which mode this dump came from. (MATLAB
-% renders raw '_' as a LaTeX subscript when interpreter is 'tex'; here
-% we use 'none' to show the literal text, but also map the most common
-% snake_case names to nicer human labels.)
+% the user can see at a glance which mode this dump came from. Title
+% renders in LaTeX so the formula and stats line up cleanly.
 feat_pretty = pretty_feature_name(feat);
 cluster_str = '';
 if ismember('mode_cluster', T.Properties.VariableNames)
     uc = unique(T.mode_cluster);
-    cluster_str = sprintf('   mode_cluster = %s', mat2str(uc(:)'));
+    if numel(uc) == 1
+        cluster_str = sprintf(', cluster %d', uc);
+    else
+        cluster_str = sprintf(', clusters \\{%s\\}', strjoin(string(uc(:)'), ','));
+    end
 end
-xlabel(ax,'Age (years)'); ylabel(ax,sprintf('%s (rad)', feat_pretty));
-title(ax, sprintf('%s%s    n=%d / %d subj    R̄=%.2f    formula: %s    \\theta_{shift}=%+.2f rad', ...
-    feat_pretty, cluster_str, height(T), numel(unique(T.Subj_ID)), ...
-    R_overall, formula_full, theta_shift),...
-    'Interpreter','tex','FontSize',12);
+% Title gets the human-readable info with LaTeX math; the formula
+% string (with its raw '_' and '^') goes into the stats annotation
+% below, which is rendered with Interpreter='none' so it shows
+% literally without further escaping.
+title_line1 = sprintf('\\textbf{%s}%s', feat_pretty, cluster_str);
+title_line2 = sprintf('$n = %d$ obs / $%d$ subj, $\\bar{R} = %.2f$, $\\theta_{\\mathrm{shift}} = %+.2f$ rad', ...
+    height(T), numel(unique(T.Subj_ID)), R_overall, theta_shift);
+xlabel(ax,'Age (years)','Interpreter','latex');
+ylabel(ax,sprintf('%s (rad)', feat_pretty),'Interpreter','latex');
+title(ax, {title_line1, title_line2}, 'Interpreter','latex','FontSize',13);
 xlim(ax,[5 85]); ylim(ax,[-pi pi]);
 yticks(ax,[-pi -pi/2 0 pi/2 pi]);
 yticklabels(ax,{'-\pi','-\pi/2','0','\pi/2','\pi'});
 grid(ax,'on');
-legend(ax,'Location','eastoutside','FontSize',9,'NumColumns',1);
+legend(ax,'Location','eastoutside','FontSize',9,'NumColumns',1,'Interpreter','tex');
 
 % Stats panel as text annotation, full-width below the axes so it doesn't
-% collide with the x-axis labels.
-ann = annotation(fig,'textbox',[0.06 0.02 0.88 0.12], ...
-    'String', stats_str, ...
+% collide with the x-axis labels. Includes the Wilkinson formula at the
+% top (rendered with Interpreter='none' so '_' and '^' come through
+% literally without LaTeX escaping).
+panel_str = sprintf('formula: %s\n%s', formula_full, stats_str);
+ann = annotation(fig,'textbox',[0.06 0.02 0.88 0.14], ...
+    'String', panel_str, ...
     'EdgeColor',[0.85 0.85 0.85],'BackgroundColor',[0.97 0.97 0.97], ...
     'FontName','Courier New','FontSize',10, ...
     'VerticalAlignment','top','Interpreter','none', ...
@@ -369,6 +379,16 @@ end
 function w = wrap_pi(x)
 % Wrap to (-pi, pi].
 w = ((x + pi) - 2*pi*floor((x + pi) / (2*pi))) - pi;
+end
+
+
+function s = latex_escape(s)
+% Make a Wilkinson formula string safe for MATLAB's LaTeX interpreter
+% as plain text mixed with math segments. Outside math mode underscores
+% must be escaped, and the formula's '~' and 'X^k' need to be in math.
+s = regexprep(s, '([A-Za-z]+)\^(\d+)', '$1$$^{$2}$$'); % Age^2 -> Age$^{2}$
+s = strrep(s, '~', '$\sim$');
+s = strrep(s, '_', '\_');
 end
 
 
