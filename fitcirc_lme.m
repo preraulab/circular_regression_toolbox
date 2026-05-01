@@ -147,6 +147,10 @@ classdef fitcirc_lme
         DFE
         ContrastIndex
         Rsquared
+        % Variance-minimizing circular shift applied to the response
+        % before fitting. Predictions add it back and wrap to (-pi, pi].
+        % Default 0 means "fit on the data as given" (legacy behavior).
+        ThetaShift = 0
     end
 
     methods
@@ -159,6 +163,11 @@ classdef fitcirc_lme
             p.addParameter('InitKappa',     4);
             p.addParameter('InitKappaPhi',  4);
             p.addParameter('InitSigma',    []);  % deprecated; converted if given
+            % AutoShift = true: rotate y by the variance-minimizing shift
+            % so wrapping doesn't split the response near +/- pi. The shift
+            % is recorded in ThetaShift and added back during predict().
+            p.addParameter('AutoShift', false);
+            p.addParameter('ThetaShift', []);    % override AutoShift with explicit value
             p.parse(varargin{:});
             opt = p.Results;
             if ~isempty(opt.InitSigma)
@@ -182,10 +191,27 @@ classdef fitcirc_lme
             assert(ismember(groupVar, tbl.Properties.VariableNames), ...
                 'grouping variable "%s" not found', groupVar);
 
-            tmp = fitlme(tbl, formula);
+            % Variance-minimizing circular shift, computed on the
+            % NaN-stripped response. Applied to a working copy of the
+            % table (so design matrix and grouping match), and recorded
+            % on the model so predict() can invert it.
+            theta_shift = 0;
+            if ~isempty(opt.ThetaShift)
+                theta_shift = double(opt.ThetaShift);
+            elseif opt.AutoShift
+                theta_shift = circ_shift_min_var(tbl.(respName));
+            end
+            if theta_shift ~= 0
+                tbl_fit = tbl;
+                tbl_fit.(respName) = wrapToPi(tbl.(respName) - theta_shift);
+            else
+                tbl_fit = tbl;
+            end
+
+            tmp = fitlme(tbl_fit, formula);
             X        = designMatrix(tmp, 'Fixed');
             colNames = tmp.CoefficientNames(:);
-            y        = tbl.(respName);
+            y        = tbl_fit.(respName);
 
             grp = tbl.(groupVar);
             [g_idx, g_levels] = grp2idx(grp);
@@ -322,7 +348,25 @@ classdef fitcirc_lme
             obj.DesignNames        = colNames;
             obj.SubjectIDs         = g_levels;
             obj.X_design           = X;
-            obj.TrainingData       = tbl;
+            obj.TrainingData       = tbl_fit;
+            obj.ThetaShift         = theta_shift;
+
+            % Bake the shift back into the (Intercept) coefficient so the
+            % linear predictor X*Beta is on the original (unshifted) angle
+            % scale. Variance/covariance is invariant under translation, so
+            % cov_b, joint Wald tests, and CI half-widths are unchanged.
+            % After this, predict() and external CI code do NOT need to
+            % know about ThetaShift; it is recorded only as metadata.
+            if theta_shift ~= 0 && ~isempty(obj.Beta)
+                int_idx = find(strcmp(colNames, '(Intercept)'), 1);
+                if ~isempty(int_idx)
+                    obj.Beta(int_idx) = wrapToPi(obj.Beta(int_idx) + theta_shift);
+                    obj.Coefficients.Estimate(int_idx) = obj.Beta(int_idx);
+                    % The intercept's t/p were already not interpretable
+                    % on a circular scale; leave them as-is rather than
+                    % falsely advertising a meaningful test.
+                end
+            end
 
             % Free parameters: p (beta) + kappa + kappa_phi
             k_eff = n_par + 2;
