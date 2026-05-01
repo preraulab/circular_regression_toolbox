@@ -1,0 +1,1 @@
+{"formula":"y ~ Age^2 * electrode + sex + (1|Subj_ID)","x_col":"Age","feature":"pref_phase","order":2,"has_electrode":1,"has_sex":1,"dump":"/Users/Mike/Desktop/phase_fit_dumps/phase_fit_pref_phase_o2_003.mat"}

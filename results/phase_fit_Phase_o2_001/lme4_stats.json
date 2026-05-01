@@ -1,0 +1,9 @@
+{
+  "method": "R lme4 sin/cos (frequentist projected-Gaussian)",
+  "formula": "sin_y ~ poly(Age, 2, raw = TRUE) + sex + (1 | Subj_ID)",
+  "n_obs": 603,
+  "n_subj": 500,
+  "LL_sin_plus_cos": -888.9008,
+  "R2_circ": 0.0341,
+  "mae_angular": 0.6189
+}
