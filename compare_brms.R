@@ -44,9 +44,14 @@ cache_file <- sprintf("brms_%s_o%d_full", meta$feature, meta$order)
 
 fit <- brm(
   as.formula(fml_str), data = d,
-  family = von_mises(link = "identity", link_kappa = "log"),
-  prior  = c(prior(normal(0, 1),         class = "Intercept"),
-             prior(normal(0, 0.5),       class = "b"),
+  # tan_half is the natural link for circular outcomes: it maps the
+  # unbounded linear predictor onto (-pi, pi) via 2*atan(eta). With
+  # identity link and data at the +-pi seam (e.g. Theta phase), the
+  # posterior had multiple modes (eta ~ +pi vs eta ~ -pi parameterize
+  # the same point on the circle), so chains failed to mix (Rhat ~ 2).
+  family = von_mises(link = "tan_half", link_kappa = "log"),
+  prior  = c(prior(normal(0, 2),         class = "Intercept"),
+             prior(normal(0, 1),         class = "b"),
              prior(student_t(3, 0, 2.5), class = "sd"),
              prior(gamma(2, 0.5),        class = "kappa")),
   chains = 4, iter = 2000, warmup = 1000, seed = 1,
