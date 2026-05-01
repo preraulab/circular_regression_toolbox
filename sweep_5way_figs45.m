@@ -52,14 +52,14 @@ if isempty(target_order)
     fprintf('No target_order specified; using highest available = %d\n', target_order);
 end
 
-% --- The 14 fig-4/5 combos ---
+% --- The fig-4/5 combos. STDphase is a magnitude (rad of phase spread),
+% not an angle, so we exclude it from circular-regression comparisons. ---
 combos = [ ...
     cellrow('pref_phase', 1); cellrow('pref_phase', 2);
     cellrow('pref_phase', 3); cellrow('pref_phase', 4);
     cellrow('Theta',      1); cellrow('Theta',      2);
     cellrow('Theta',      3); cellrow('Theta',      4);
     cellrow('Phase',      1); cellrow('Phase',      2);
-    cellrow('STDphase',   1); cellrow('STDphase',   2);
     cellrow('Theta',      1); cellrow('Theta',      2)];      % SOPhH Theta is grouped 1:2 too
 % The SOPH Theta and SOPhH Theta are different dump names — for fig 4/5
 % the SOPH "Theta" dumps came from SOPH (4 clusters); SOPhH "Theta"

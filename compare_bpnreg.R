@@ -31,12 +31,11 @@ wrap <- function(x) ((x + pi) %% (2*pi)) - pi
 d$Subj_ID <- as.numeric(factor(d$Subj_ID))
 d$y       <- d$y %% (2*pi)
 
-# Expand polynomial Age terms AND any electrode/sex interactions
-# explicitly into pre-computed columns. bpnme's formula parser does
-# not reliably expand 'A:B' interactions on numeric covariates -- when
-# we pass them in formula form, the interaction terms get silently
-# dropped from the fitted beta1/beta2 matrices, so predictions end up
-# identical for both electrodes. Pre-multiplying sidesteps that.
+# Build the bpnme formula. bpnme requires CATEGORICAL predictors to be
+# factors (it dispatches differently for factors vs numerics in its
+# summary code). We treat electrode and sex as factors and let
+# bpnme handle the * interaction expansion via R's standard formula
+# operators.
 ord <- meta$order
 add_col <- function(df, name, vals) { df[[name]] <- vals; df }
 for (k in seq_len(ord)) {
@@ -44,24 +43,30 @@ for (k in seq_len(ord)) {
   d   <- add_col(d,   nm, d$Age^k)
   grid<- add_col(grid,nm, grid$Age^k)
 }
-
-rhs_terms <- character(0)
-if (ord >= 1) rhs_terms <- c(rhs_terms, "Age")
-if (ord >= 2) rhs_terms <- c(rhs_terms, sprintf("Age_p%d", 2:ord))
 if (as.logical(meta$has_electrode)) {
-  rhs_terms <- c(rhs_terms, "electrode")
-  for (k in seq_len(ord)) {
-    age_nm <- if (k == 1) "Age" else paste0("Age_p", k)
-    int_nm <- paste0(age_nm, "_x_elec")
-    d    <- add_col(d,    int_nm, d[[age_nm]]    * d$electrode)
-    grid <- add_col(grid, int_nm, grid[[age_nm]] * grid$electrode)
-    rhs_terms <- c(rhs_terms, int_nm)
-  }
+  d$electrode    <- factor(d$electrode,    levels = c(0,1))
+  grid$electrode <- factor(grid$electrode, levels = c(0,1))
 }
-if (as.logical(meta$has_sex)) rhs_terms <- c(rhs_terms, "sex")
-if (length(rhs_terms) == 0) rhs_terms <- "1"
+if (as.logical(meta$has_sex)) {
+  d$sex    <- factor(d$sex,    levels = sort(unique(c(d$sex, grid$sex))))
+  grid$sex <- factor(grid$sex, levels = levels(d$sex))
+}
 
-fml_str <- sprintf("y ~ %s + (1|Subj_ID)", paste(rhs_terms, collapse = " + "))
+# Build a Wilkinson formula. With electrode as a factor, "Age*electrode"
+# expands to Age + electrode + Age:electrode and bpnme handles the
+# expansion itself.
+poly_terms <- "Age"
+if (ord >= 2) poly_terms <- c(poly_terms, sprintf("Age_p%d", 2:ord))
+rhs_parts <- character(0)
+if (as.logical(meta$has_electrode)) {
+  for (pt in poly_terms) rhs_parts <- c(rhs_parts, sprintf("%s*electrode", pt))
+} else {
+  rhs_parts <- poly_terms
+}
+if (as.logical(meta$has_sex)) rhs_parts <- c(rhs_parts, "sex")
+if (length(rhs_parts) == 0) rhs_parts <- "1"
+
+fml_str <- sprintf("y ~ %s + (1|Subj_ID)", paste(rhs_parts, collapse = " + "))
 cat("bpnme formula:", fml_str, "\n  n=", nrow(d), " subj=", length(unique(d$Subj_ID)), "\n")
 
 set.seed(1)
@@ -85,7 +90,7 @@ cat("bpnme fit done. iter=", nrow(beta1), " P=", P, "  cols:", paste(colnames(be
 fix_cols <- colnames(beta1)
 # Match by re-building the model matrix from the fixed-effects formula and
 # then realigning columns; safer than relying on R's term ordering.
-fix_form <- as.formula(sprintf("~ %s", paste(rhs_terms, collapse = " + ")))
+fix_form <- as.formula(sprintf("~ %s", paste(rhs_parts, collapse = " + ")))
 mm_grid  <- model.matrix(fix_form, data = grid)
 mm_train <- model.matrix(fix_form, data = d)
 
