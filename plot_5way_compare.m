@@ -118,8 +118,9 @@ stats_str = strjoin(arrayfun(@(k) sprintf('%-30s LL=%9.1f  R^2=%5.3f  MAE=%5.3f'
 fprintf('\n--- Goodness of fit ---\n%s\n', stats_str);
 
 % --- Plot ---
-fig = figure('Position', [50 50 1400 800], 'Color', 'w');
-ax = axes(fig); hold(ax,'on');
+fig = figure('Position', [50 50 1700 950], 'Color', 'w');
+ax = axes(fig, 'Position', [0.06 0.18 0.66 0.74]);   % leave room: legend right, stats below
+hold(ax,'on');
 
 color_central = [0.95 0.55 0.16];
 color_frontal = [0.00 0.59 1.00];
@@ -163,13 +164,16 @@ xlim(ax,[5 85]); ylim(ax,[-pi pi]);
 yticks(ax,[-pi -pi/2 0 pi/2 pi]);
 yticklabels(ax,{'-\pi','-\pi/2','0','\pi/2','\pi'});
 grid(ax,'on');
-legend(ax,'Location','eastoutside','FontSize',8,'NumColumns',1);
+legend(ax,'Location','eastoutside','FontSize',9,'NumColumns',1);
 
-% Stats panel as text annotation
-ann = annotation(fig,'textbox',[0.02 0.02 0.5 0.10], ...
+% Stats panel as text annotation, full-width below the axes so it doesn't
+% collide with the x-axis labels.
+ann = annotation(fig,'textbox',[0.06 0.02 0.88 0.12], ...
     'String', stats_str, ...
-    'EdgeColor','none','FontName','Courier New','FontSize',8, ...
-    'VerticalAlignment','top','Interpreter','none');
+    'EdgeColor',[0.85 0.85 0.85],'BackgroundColor',[0.97 0.97 0.97], ...
+    'FontName','Courier New','FontSize',10, ...
+    'VerticalAlignment','top','Interpreter','none', ...
+    'Margin', 6);
 
 set(fig,'Renderer','painters');
 exportgraphics(fig, out_png, 'Resolution', 150);
@@ -219,12 +223,17 @@ end
 
 
 function plot_bin(ax, bc, mu, lo, hi, color)
+% Draw binned-circular-mean error bars. Skip bars where the CI half-width
+% exceeds pi/2 — those bins have too much circular dispersion for a
+% Cartesian vertical bar to make sense (it would span most of [-pi,pi]
+% and dominate the figure visually). Plot the dot regardless so the bin
+% mean is still shown.
 for b = 1:numel(bc)
-    if ~isnan(lo(b))
+    if ~isnan(lo(b)) && (hi(b) - lo(b)) <= pi
         line(ax, [bc(b) bc(b)], [lo(b) hi(b)], 'Color', color, 'LineWidth', 1.0, 'HandleVisibility','off');
     end
 end
-plot(ax, bc, mu, 'o', 'MarkerSize', 4, 'MarkerFaceColor', color, 'MarkerEdgeColor', color, 'HandleVisibility','off');
+plot(ax, bc, mu, 'o', 'MarkerSize', 5, 'MarkerFaceColor', color, 'MarkerEdgeColor', color, 'HandleVisibility','off');
 end
 
 
@@ -234,18 +243,24 @@ function S = goodness_of_fit_table(T, feat, m1, m2, results_dir)
 y = T.(feat);
 mu_y = atan2(mean(sin(y)), mean(cos(y)));
 
-% MATLAB fitcirc_lme: marginal X*beta (random effect at population mean = 0)
-% Use predict on the training data
+% MATLAB fits — predict marginally (random effect = 0) so the
+% comparison is apples-to-apples with lme4 / brms / bpnreg, all of which
+% use re.form=NA / population-level prediction.
 nd_train = T(:, intersect(T.Properties.VariableNames, ...
     {'Age','electrode','sex','Subj_ID'}));
-yhat1 = m1.predict(nd_train);
+
+% fitcirc_lme: defaults to Conditional=false already, but pass it
+% explicitly so the intent is documented at the call site.
+yhat1 = m1.predict(nd_train, 'Conditional', false);
 ar1 = wrapToPi(y - yhat1);
 LL1 = m1.LogLikelihood;
 R2_1 = 1 - sum(1 - cos(ar1)) / max(sum(1 - cos(wrapToPi(y - mu_y))), 1e-12);
 mae1 = mean(abs(ar1));
 
-% MATLAB fitlme_circ: same predict shape
-yhat2 = m2.predict(nd_train);
+% fitlme_circ: forwards to fitlme.predict, which DEFAULTS to
+% Conditional=true (uses random effects). Force marginal prediction so
+% R² reflects population-level fit, not subject-specific offsets.
+yhat2 = m2.predict(nd_train, 'Conditional', false);
 ar2 = wrapToPi(y - yhat2);
 % fitlme_circ stores per-component LL; sum them
 try
