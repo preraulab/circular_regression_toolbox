@@ -256,6 +256,7 @@ classdef fitcirc_lme
 
                 % kappa: Banerjee on residuals deflated by rho_i
                 resid = wrapToPi(y - X*beta - offset);
+
                 Sc = sum(sin(resid) .* w);
                 Cc = sum(cos(resid) .* w);
                 R_corr = sqrt(Sc*Sc + Cc*Cc) / n;
