@@ -1,4 +1,4 @@
-# R brms (Stan-backed) vM-GLMM with identity link.
+# R brms (Stan-backed) vM-GLMM with tan_half link.
 # Reads <results_dir>/data.csv + eval_grid.csv + meta.json.
 # Writes <results_dir>/brms_predictions.csv + brms_stats.json.
 suppressPackageStartupMessages({
@@ -28,7 +28,7 @@ d$y <- ((d$y + pi) %% (2*pi)) - pi
 theta_shift <- if (!is.null(meta$theta_shift)) as.numeric(meta$theta_shift) else 0
 wrap <- function(x) ((x + pi) %% (2*pi)) - pi
 
-# Standardize Age so the b ~ N(0, 0.5) prior is reasonable. Without this,
+# Standardize Age so the b ~ N(0, 1) prior is reasonable. Without this,
 # raw Age (range ~7..80) combined with an identity-link vM model lets the
 # linear predictor span many wrap-arounds, and the prior pulls coefs to 0.
 age_mu <- mean(d$Age); age_sd <- sd(d$Age)
@@ -109,7 +109,7 @@ ll_obs <- log(colMeans(exp(llmat - max(llmat))) ) + max(llmat) # log-mean-exp pe
 LL     <- sum(ll_obs)
 
 stats <- list(
-  method      = "R brms vM-GLMM (Stan, identity link)",
+  method      = "R brms vM-GLMM (Stan, tan_half link)",
   formula     = fml_str,
   n_obs       = nrow(d),
   n_subj      = nlevels(d$Subj_ID),
