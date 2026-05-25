@@ -415,10 +415,15 @@ classdef fitcirc_lme
                         end
                     end
                     keys_ = intx_groups.keys;
+                    age_idx = ci.x_main;
                     for kk = 1:numel(keys_)
                         fld = matlab.lang.makeValidName(['x_x_' keys_{kk}]);
                         ci.(fld) = intx_groups(keys_{kk});
+                        age_idx = [age_idx; ci.(fld)]; %#ok<AGROW>
                     end
+                    % Omnibus age block: the polynomial main effect plus every
+                    % age-interaction term -> a single "any age effect" test.
+                    ci.x_age = unique(age_idx);
                 end
             end
             obj.ContrastIndex = ci;

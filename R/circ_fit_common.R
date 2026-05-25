@@ -24,11 +24,14 @@ circ_gof <- function(y, yhat) {
   list(R2 = 1 - sse / max(sst, 1e-12), MAE = mean(abs(r)))
 }
 
-# Identify Age-block coefficient indices from Wilkinson names (x_main).
+# Identify the OMNIBUS age block: every coefficient that involves the x_col
+# predictor, including interactions ('Age', 'Age^k', 'Age:cat', 'Age^k:cat').
+# Used for the single "any age effect" Wald test.
 age_block_idx <- function(names, x_col = "Age") {
-  is_poly <- function(nm) nm == x_col ||
-    grepl(paste0("^", x_col, "\\^?[0-9]+$"), nm)
-  which(vapply(names, function(nm) is_poly(trimws(nm)) && !grepl(":", nm), logical(1)))
+  is_poly <- function(f) f == x_col || grepl(paste0("^", x_col, "\\^?[0-9]+$"), f)
+  involves_age <- function(nm)
+    any(vapply(strsplit(nm, ":", fixed = TRUE)[[1]], function(f) is_poly(trimws(f)), logical(1)))
+  which(vapply(names, involves_age, logical(1)))
 }
 
 # Remap brms poly() fixef rownames -> Wilkinson 'Age^k' grammar.
