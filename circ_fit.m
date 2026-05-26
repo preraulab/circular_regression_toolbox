@@ -64,7 +64,7 @@ end
 function result = run_r_backend(tbl, backend, opts)
 this_dir = fileparts(mfilename('fullpath'));
 rscript  = getopt(opts, 'RscriptPath', '/usr/local/bin/Rscript');
-worker   = fullfile(this_dir, 'circ_fit.R');
+worker   = fullfile(this_dir, 'R', 'circ_fit.R');
 
 feature  = opts.feature;
 order    = opts.MaxOrder;     % R worker sweeps 0..order when select=true

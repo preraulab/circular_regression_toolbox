@@ -1,6 +1,6 @@
 function meta = write_circ_contract(T, feature, order, results_dir, opts)
 %WRITE_CIRC_CONTRACT  Write the data.csv / eval_grid.csv / meta.json contract
-% that the R circular-regression workers (circ_fit.R and the legacy
+% that the R circular-regression worker (circ_fit.R; legacy
 % compare_*.R) read. Takes a plain table + feature + order, so it can be
 % driven directly from a fit call (not just from a saved dump).
 %
