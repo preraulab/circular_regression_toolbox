@@ -1,0 +1,10 @@
+# Generated artifacts (R/Stan caches, sweep dumps, etc.)
+results/
+*.rds
+
+# macOS / editor
+.DS_Store
+*~
+
+# MATLAB
+*.asv
