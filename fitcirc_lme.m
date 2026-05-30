@@ -118,6 +118,29 @@ classdef fitcirc_lme
 % LIMITATIONS
 %   - Single (1|group) random-intercept term only.
 %   - Cluster-robust SEs need a reasonable number of subjects.
+%
+% REFERENCES
+%   Banerjee, A., Dhillon, I.S., Ghosh, J. & Sra, S. (2005).
+%     Clustering on the unit hypersphere using von Mises-Fisher
+%     distributions. Journal of Machine Learning Research 6:1345-1382.
+%     https://www.jmlr.org/papers/v6/banerjee05a.html
+%     Source of the large-N kappa approximation kappa_hat = R(d - R^2)/(1 - R^2)
+%     used in local_kappa_from_R below.
+%   Best, D.J. & Fisher, N.I. (1981). The bias of the maximum likelihood
+%     estimators of the von Mises-Fisher concentration parameters.
+%     Communications in Statistics - Simulation and Computation B10(5):493-502.
+%     Source of the small-sample (N < ~16) bias correction in the local
+%     kappa branch.
+%   Liang, K.-Y. & Zeger, S.L. (1986). Longitudinal data analysis using
+%     generalized linear models. Biometrika 73(1):13-22.
+%     https://doi.org/10.1093/biomet/73.1.13
+%     Source of the cluster-robust sandwich variance estimator used in
+%     the inference block below.
+%   Stram, D.O. & Lee, J.W. (1994). Variance components testing in the
+%     longitudinal mixed effects model. Biometrics 50(4):1171-1177.
+%     (with correction in Biometrics 51(3):1196, 1995). Documents the
+%     boundary issue for variance-component MLEs that motivates the
+%     KappaPhiMax cap below.
 
     properties
         Formula
@@ -163,11 +186,39 @@ classdef fitcirc_lme
             p.addParameter('InitKappa',     4);
             p.addParameter('InitKappaPhi',  4);
             p.addParameter('InitSigma',    []);  % deprecated; converted if given
+            % Upper cap on the random-intercept prior concentration
+            % kappa_phi, applied in the M-step. Without this, when the
+            % fixed effects absorb most of the population trend the
+            % posterior on each subject's phi_j collapses near 0 and
+            % the unconstrained M-step drives kappa_phi -> infinity
+            % (boundary case; cf. Stram & Lee 1994 on testing
+            % variance components at the boundary). That in turn
+            % dominates the marginal LL's `- n_subj * log I0(kappa_phi)`
+            % term and drags it down, so the LRT incorrectly rejects
+            % higher-order fixed-effects models even when they
+            % genuinely improve fit (Wald-significant slope, big
+            % R2_circ gain). KappaPhiMax = 8 corresponds to a minimum
+            % allowed subject-level circular sd of ~0.36 rad (~21deg),
+            % below typical spindle-phase measurement noise, so it
+            % does not bind on realistic random-effects structure -- it
+            % only prevents the boundary blow-up. Tighter cap -> more
+            % subject heterogeneity allowed; looser cap restores the
+            % old pathology. Set to inf to disable.
+            p.addParameter('KappaPhiMax', 8);
             % AutoShift = true: rotate y by the variance-minimizing shift
             % so wrapping doesn't split the response near +/- pi. The shift
             % is recorded in ThetaShift and added back during predict().
             p.addParameter('AutoShift', false);
             p.addParameter('ThetaShift', []);    % override AutoShift with explicit value
+            % Warm-start support: callers (e.g. circ_fit_fitcirc's order
+            % loop) can pass a previous order's converged Beta + coefficient
+            % names. We copy estimates by NAME into the new column basis
+            % (columns absent from the prior fit start at 0), giving the
+            % EM a much better initial guess for higher orders. Without
+            % this, IRLS cold-starts at all-zeros and higher-order fits
+            % routinely converge to LL worse than the intercept-only fit.
+            p.addParameter('InitBeta',      []);  % numeric vector (matching InitBetaNames)
+            p.addParameter('InitBetaNames', {});  % cellstr of coefficient names
             p.parse(varargin{:});
             opt = p.Results;
             if ~isempty(opt.InitSigma)
@@ -222,7 +273,24 @@ classdef fitcirc_lme
             % --- Initialize ---
             kappa     = opt.InitKappa;
             kappa_phi = opt.InitKappaPhi;
-            beta      = local_irls_circ_offset(X, y, zeros(n,1), zeros(n_par,1), [], 50);
+            % Warm-start beta from caller-supplied InitBeta if given. Names
+            % are matched against the new column names; absent columns
+            % start at 0. IRLS then refines from this seed instead of
+            % starting cold at all-zeros.
+            beta_init = zeros(n_par, 1);
+            if ~isempty(opt.InitBeta) && ~isempty(opt.InitBetaNames)
+                init_names = cellstr(opt.InitBetaNames);
+                init_b     = opt.InitBeta(:);
+                if numel(init_names) == numel(init_b)
+                    for k = 1:n_par
+                        m_idx = find(strcmp(init_names, colNames{k}), 1);
+                        if ~isempty(m_idx)
+                            beta_init(k) = init_b(m_idx);
+                        end
+                    end
+                end
+            end
+            beta = local_irls_circ_offset(X, y, zeros(n,1), beta_init, [], 50);
 
             mu_post = zeros(n_subj, 1);
             K_post  = zeros(n_subj, 1);
@@ -263,9 +331,13 @@ classdef fitcirc_lme
                 kappa  = local_kappa_from_R(R_corr, n);
 
                 % kappa_phi: constrained MLE (prior mean fixed at 0).
-                % A(kappa_phi) = max(0, mean_i rho_i * cos(mu_post_i))
+                % A(kappa_phi) = max(0, mean_i rho_i * cos(mu_post_i)).
+                % Cap at opt.KappaPhiMax to prevent the boundary
+                % blow-up (kappa_phi -> infinity when the posterior on
+                % phi_j collapses near 0). See parameter docstring.
                 R_phi = max(0, mean(rho .* cos(mu_post)));
                 kappa_phi = local_kappa_from_R(R_phi, n_subj);
+                kappa_phi = min(kappa_phi, opt.KappaPhiMax);
 
                 % Marginal LL (exact)
                 ll_data = sum(local_logI0(K_post)) ...
@@ -378,16 +450,48 @@ classdef fitcirc_lme
             obj.DFE   = df_t;
 
             % --- Build ContrastIndex by parsing colNames for predictor blocks. ---
+            % Find the polynomial base predictor by scanning ALL columns
+            % (not just colNames{2}, which is fragile to fitlme's
+            % coefficient reordering when a categorical and a continuous
+            % predictor are both in the formula). We accept TWO
+            % naming conventions:
+            %   * orthogonal polynomial columns: `<base>_op<k>` with k
+            %     in 1..K (used by circ_fit_fitcirc when the basis was
+            %     pre-orthogonalized via ortho_poly_basis); these are
+            %     ALL polynomial main effects of `<base>` -- no
+            %     auto-expansion needed.
+            %   * legacy raw-power: `<base>`, `<base>^k`; auto-expanded
+            %     by fitlme from a `^k` formula term.
+            % The first convention wins if any column matches it.
             ci = struct();
             if n_par >= 2
-                base_tok = regexp(char(colNames{2}), '^([A-Za-z_]+?)\d*$', 'tokens', 'once');
-                if isempty(base_tok)
-                    base_tok = regexp(char(colNames{2}), '^([A-Za-z_]\w*)', 'tokens', 'once');
+                op_tok = regexp(char(colNames{2}), '^(.+)_op\d+$', 'tokens', 'once');
+                base = '';
+                is_op_basis = false;
+                % Scan all columns for an orthogonal-polynomial pattern.
+                for kk_scan = 2:n_par
+                    tok = regexp(char(colNames{kk_scan}), '^([A-Za-z_]\w*)_op\d+$', 'tokens', 'once');
+                    if ~isempty(tok)
+                        base = tok{1};
+                        is_op_basis = true;
+                        break;
+                    end
                 end
-                if ~isempty(base_tok)
-                    base = base_tok{1};
-                    is_poly_term = @(nm) strcmp(nm, base) || ...
-                        ~isempty(regexp(nm, ['^' regexptranslate('escape',base) '\^?\d+$'], 'once'));
+                if ~is_op_basis
+                    base_tok = regexp(char(colNames{2}), '^([A-Za-z_]+?)\d*$', 'tokens', 'once');
+                    if isempty(base_tok)
+                        base_tok = regexp(char(colNames{2}), '^([A-Za-z_]\w*)', 'tokens', 'once');
+                    end
+                    if ~isempty(base_tok), base = base_tok{1}; end
+                end
+                if ~isempty(base)
+                    if is_op_basis
+                        is_poly_term = @(nm) ~isempty(regexp(nm, ...
+                            ['^' regexptranslate('escape',base) '_op\d+$'], 'once'));
+                    else
+                        is_poly_term = @(nm) strcmp(nm, base) || ...
+                            ~isempty(regexp(nm, ['^' regexptranslate('escape',base) '\^?\d+$'], 'once'));
+                    end
                     main_idx = [];
                     for kk = 2:n_par
                         nm = char(colNames{kk});
