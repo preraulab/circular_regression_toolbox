@@ -90,8 +90,7 @@ classdef fitcirc_lme
 %   Kappa                 - scalar concentration of the response noise
 %   KappaPhi              - scalar concentration of the subject-phase prior
 %   SigmaPhi              - equivalent circular SD,
-%                           sqrt( -2 * log( A(KappaPhi) ) )  (for back-
-%                           compat with code that read the old field name)
+%                           sqrt( -2 * log( A(KappaPhi) ) )
 %   PhiHat                - n_subj-by-1 posterior mean directions
 %   PhiRho                - n_subj-by-1 posterior mean resultant lengths
 %   PhiKappaPost          - n_subj-by-1 posterior concentrations
