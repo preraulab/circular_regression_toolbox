@@ -129,7 +129,7 @@ decides whether to act).
 ## 4. Order selection: LOO
 
 With `Select = true`, the R-side adapter fits the model at every
-polynomial order $k = 0, 1, \ldots, `MaxOrder`$. For each fit it
+polynomial order $k = 0, 1, \ldots, \text{MaxOrder}$. For each fit it
 records:
 
 - the per-observation expected log pointwise predictive density (ELPD)

@@ -141,7 +141,7 @@ is honest.
 
 ## 4. Order selection: combined sin+cos LRT
 
-For each candidate polynomial order $k$ in $0, 1, \ldots, `MaxOrder`$,
+For each candidate polynomial order $k$ in $0, 1, \ldots, \text{MaxOrder}$,
 the adapter fits both component LMEs and computes the standard
 likelihood-ratio test against the order-$(k-1)$ component:
 

@@ -325,7 +325,7 @@ the dispatch.
 
 ## 6. Polynomial order selection
 
-With `Select = true`, the toolbox sweeps $k = 0, 1, \ldots, `MaxOrder`$
+With `Select = true`, the toolbox sweeps $k = 0, 1, \ldots, \text{MaxOrder}$
 and applies a **step-up likelihood-ratio test** at $\alpha = 0.05$:
 
 - Fit order $0$; record $\ell_0^\star$.

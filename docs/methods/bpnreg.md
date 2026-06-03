@@ -162,7 +162,7 @@ $$
 k_\text{selected}  =  \arg\min_k \text{WAIC}_k, \quad \text{but stop stepping up when}\quad \text{WAIC}_k - \text{WAIC}_{k_\text{selected}} > \text{SE}\bigl(\text{WAIC}_k - \text{WAIC}_{k_\text{selected}}\bigr).
 $$
 
-The R-side adapter sweeps $k = 0, 1, \ldots, `MaxOrder`$ and
+The R-side adapter sweeps $k = 0, 1, \ldots, \text{MaxOrder}$ and
 records each WAIC.
 
 The full per-order audit is in `OrderTable`:
