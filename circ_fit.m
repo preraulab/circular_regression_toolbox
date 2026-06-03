@@ -1,7 +1,10 @@
-function result = circ_fit(tbl, formula, backend, opts)
+function result = circ_fit(tbl, formula, backend, varargin)
 %CIRC_FIT  Fit a circular regression and return a uniform result struct.
 %
-%   result = circ_fit(tbl, formula, backend, opts)
+%   result = circ_fit(tbl, formula)
+%   result = circ_fit(tbl, formula, backend)
+%   result = circ_fit(tbl, formula, backend, Name, Value, ...)
+%   result = circ_fit(tbl, formula, backend, optsStruct)
 %
 % This is the entry point of the toolbox. It takes a tidy data table, a
 % formula in the same Wilkinson grammar `fitlme` uses, and the name of
@@ -9,6 +12,12 @@ function result = circ_fit(tbl, formula, backend, opts)
 % with the same field names regardless of which backend did the work.
 % That uniform output lets you swap estimators (sensitivity check,
 % backend comparison, etc.) without changing any downstream code.
+%
+% Options can be supplied as Name-Value pairs (the MATLAB-idiomatic
+% form, matching fitlme / fitglm / fitnlm / etc.) OR as a single
+% struct (the legacy form, still accepted for backward compatibility).
+% The two are equivalent: `'Select', true, 'MaxOrder', 2` works
+% identically to `struct('Select', true, 'MaxOrder', 2)`.
 %
 % INPUTS
 %   tbl      a MATLAB table. Required columns: the response (an angle in
@@ -37,8 +46,8 @@ function result = circ_fit(tbl, formula, backend, opts)
 %              'bpnreg'       Bayesian projected-normal mixed model
 %            The R-backed backends require R + the named package on the
 %            machine; see the toolbox README's "Dependencies" section.
-%   opts     options struct (any unset fields take sensible defaults).
-%            Most useful fields:
+%   Name-Value pairs (or fields of optsStruct; any omitted take the
+%            defaults shown in parentheses). The most useful options:
 %              .Select      (false) true -> step-up LRT order selection
 %                                    up to MaxOrder
 %              .MaxOrder    (parsed from formula) cap for order selection
@@ -84,8 +93,8 @@ function result = circ_fit(tbl, formula, backend, opts)
 %     true parameter is known, run tutorial.m (`run('tutorial.m')`).
 %   * To overlay multiple backends on the same data, fit each
 %     separately and pass them as a cell array to plot_circ_fit:
-%       r1 = circ_fit(tbl, fml, 'fitcirc_lme', opts);
-%       r2 = circ_fit(tbl, fml, 'brms',        opts);
+%       r1 = circ_fit(tbl, fml, 'fitcirc_lme', 'Select', true, 'MaxOrder', 2);
+%       r2 = circ_fit(tbl, fml, 'brms',        'Select', true, 'MaxOrder', 2);
 %       plot_circ_fit({r1, r2}, tbl);
 %
 % On R-backend failure (missing toolchain, nonzero exit, missing
@@ -97,8 +106,16 @@ function result = circ_fit(tbl, formula, backend, opts)
 %           plot_circ_fit, circ_vmrnd, tutorial.
 
 if nargin < 3 || isempty(backend), backend = 'fitcirc_lme'; end
-if nargin < 4, opts = struct(); end
 backend = lower(char(backend));
+
+% Parse remaining args into an opts struct. Two accepted forms:
+%   circ_fit(..., backend)                          -- no options
+%   circ_fit(..., backend, optsStruct)              -- legacy single struct
+%   circ_fit(..., backend, 'Name', value, ...)      -- name-value pairs
+% Name-value pairs and struct fields are equivalent; mixing them in one
+% call is not supported (a single struct is the only thing accepted as
+% the fourth positional argument).
+opts = parse_options(varargin);
 
 % --- Seed feature/order/x_col from the formula if not supplied ---
 [feat0, ord0] = parse_formula(formula);
@@ -215,5 +232,32 @@ if isfield(opts, name) && ~isempty(opts.(name))
     v = opts.(name);
 else
     v = default;
+end
+end
+
+
+function opts = parse_options(args)
+% Accept either a single struct or a flat list of Name-Value pairs.
+% Returns a struct with one field per supplied option.
+if isempty(args)
+    opts = struct();
+    return;
+end
+if numel(args) == 1 && isstruct(args{1})
+    opts = args{1};
+    return;
+end
+if mod(numel(args), 2) ~= 0
+    error('circ_fit:OddNVargs', ...
+          'Name-Value arguments must come in pairs (got %d).', numel(args));
+end
+opts = struct();
+for k = 1:2:numel(args)
+    name = args{k};
+    if ~(ischar(name) || isstring(name)) || ~isvarname(char(name))
+        error('circ_fit:BadOptName', ...
+              'Name-Value option name at position %d is not a valid identifier.', k);
+    end
+    opts.(char(name)) = args{k+1};
 end
 end

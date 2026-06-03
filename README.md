@@ -368,7 +368,7 @@ addpath(genpath('circular_regression_toolbox'));
 % Response is an angle in radians; the toolbox centers by circular mean
 % internally so the input range is irrelevant.
 result = circ_fit(tbl, 'Phase ~ 1 + Age^2 + (1|Subj_ID)', 'fitcirc_lme', ...
-                  struct('Select', true, 'MaxOrder', 2));
+                  'Select', true, 'MaxOrder', 2);
 
 result.SelectedOrder              % polynomial order picked by LRT
 result.AgeEffect.pValue           % omnibus joint test: all age-involving terms = 0
@@ -378,13 +378,21 @@ result.Trajectory                 % evaluation-grid table (Age × electrode × {
 plot_circ_fit(result, tbl);       % triple-line at ±2π so the seam never jumps
 ```
 
+Options are supplied as Name-Value pairs (the form MATLAB's `fitlme` and
+`fitglm` use). A struct argument is also accepted for backward compatibility:
+
+```matlab
+opts = struct('Select', true, 'MaxOrder', 2);
+result = circ_fit(tbl, fml, 'fitcirc_lme', opts);  % equivalent
+```
+
 To overlay multiple backends on the same data (sensitivity / robustness check):
 
 ```matlab
-r1 = circ_fit(tbl, fml, 'fitcirc_lme', opts);
-r2 = circ_fit(tbl, fml, 'brms',        opts);
-r3 = circ_fit(tbl, fml, 'lme4',        opts);
-r4 = circ_fit(tbl, fml, 'bpnreg',      opts);
+r1 = circ_fit(tbl, fml, 'fitcirc_lme', 'Select', true, 'MaxOrder', 2);
+r2 = circ_fit(tbl, fml, 'brms',        'Select', true, 'MaxOrder', 2);
+r3 = circ_fit(tbl, fml, 'lme4',        'Select', true, 'MaxOrder', 2);
+r4 = circ_fit(tbl, fml, 'bpnreg',      'Select', true, 'MaxOrder', 2);
 plot_circ_fit({r1, r2, r3, r4}, tbl);
 ```
 
@@ -447,7 +455,7 @@ reproduce exactly.
 result = circ_fit(T, ...
     'Phase ~ 1 + Age + Age^2 + (1|Subj_ID)', ...
     'fitcirc_lme', ...
-    struct('Select', true, 'MaxOrder', 3));
+    'Select', true, 'MaxOrder', 3);
 ```
 
 We pass `MaxOrder = 3` to test whether the step-up LRT will be fooled into

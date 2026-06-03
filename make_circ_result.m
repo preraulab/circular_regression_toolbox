@@ -76,18 +76,23 @@ for f = {'pValue','Method'}
     assert(isfield(s.AgeEffect, f{1}), 'make_circ_result:BadAgeEffect', 'AgeEffect.%s missing.', f{1});
 end
 
-% --- Assemble: required fields as given, optional fields defaulted ---
-result = struct();
+% --- Assemble the schema as a plain struct first ---
+assembled = struct();
 for k = 1:numel(required)
-    result.(required{k}) = s.(required{k});
+    assembled.(required{k}) = s.(required{k});
 end
 opt = fieldnames(optional_defaults);
 for k = 1:numel(opt)
     f = opt{k};
     if isfield(s, f)
-        result.(f) = s.(f);
+        assembled.(f) = s.(f);
     else
-        result.(f) = optional_defaults.(f);
+        assembled.(f) = optional_defaults.(f);
     end
 end
+
+% --- Wrap as a circ_result object so it prints a fitlme-style summary
+% when typed at the prompt; property access is unchanged for callers
+% that read fields directly (`result.GOF.R2_circ_marginal` etc.).
+result = circ_result(assembled);
 end
