@@ -16,8 +16,8 @@
 %   5.  Plotting the fitted population curve with circ_fit's CI band
 %
 % Run from MATLAB with the toolbox on the path:
-%   addpath(genpath('/path/to/circ_fit_toolbox'));
-%   run(fullfile('/path/to/circ_fit_toolbox', 'tutorial.m'));
+%   addpath(genpath('/path/to/circular_regression_toolbox'));
+%   run(fullfile('/path/to/circular_regression_toolbox', 'tutorial.m'));
 
 clear; close all; rng(0);
 

@@ -876,17 +876,8 @@ read the file's header for the full picture.
 | Test file | Covers |
 |---|---|
 | `tests/test_circ_fit_schema.m` | Schema parity + wiring smoke test: every backend produces the required-tier fields, `AgeEffect.pValue` populated, `Trajectory` unwrapped, downstream `get_model_fit` wiring works. |
-| `tests/sim_circ_compare.m` | Fits and overlays all four backends on a noisy synthetic wrapping-trajectory dataset. |
-| `tests/test_circular_regression.m` | Synthetic-data validation of the circular regression core (recovery on a controlled simulation). |
-| `tests/test_drop_in_compat.m` | Smoke test that the drop-in API extensions accept the legacy positional call signatures used in the host pipeline. |
-| `tests/test_fit.m` | Minimal `fitcirc_lme` fit smoke test (no header). |
+| `tests/sim_circ_compare.m` | Fits and overlays all four backends on a noisy synthetic wrapping-trajectory dataset. (Demo, not a strict assertion test.) |
 | `tests/test_fitcirc_lme_autoshift.m` | Round-trip and seam-crossing test for `AutoShift`: predictions and CI half-widths match between shifted and unshifted fits. |
 | `tests/test_fitcirc_lme_recovery.m` | Parameter recovery on simulated data: $\beta$, $\kappa$, $\kappa_\phi$ recovered to tolerance. |
-| `tests/test_fitlme_circ.m` | Compares against two independently-fit `fitlme` models on sin/cos to numerical tolerance. |
-| `tests/test_full_pipeline_synthetic.m` | End-to-end smoke test of the lifespan-paper pipeline including `joint_test` (the age-block joint Wald p-value). |
 | `tests/test_joint_test.m` | Wald block-test sanity check: `x_main` joint Wald is true-positive on signal, true-null on shuffled covariate. |
-| `tests/test_kappa_sweep.m` / `tests/test_kappa_sweep_plot.m` | Order-selection sensitivity to noise level; visualization of fitted trajectories against truth. |
-| `tests/test_mc_simulation.m` | Monte Carlo bias and coverage for `fitlme_circ` (sin/cos LME pair) vs `fitcirc_lme` (vM EM). |
-| `tests/test_order_selection.m` | Compare polynomial-order selection across methods. |
 | `tests/test_resample_compare.m` | Compares legacy / cboot / sub80 on leverage-subject contamination. |
-| `tests/test_circular_regression.R` / `test_circular_regression_brms.R` / `test_kappa_sweep.R` / `test_order_selection.R` | R-side parity tests for the brms-style sin/cos and Stan workflows. |

@@ -1,23 +1,89 @@
-# circ_fit_toolbox
+# circular_regression_toolbox
 
-A reusable MATLAB toolbox for **regression of circular (angular) outcomes** on
-linear predictors, with optional subject random effects, a uniform result
-schema across four estimator backends, and plotting that handles the $\pm\pi$
-seam by construction.
+**A MATLAB toolbox for regression of angles** (phase, direction, time-of-day,
+compass bearing — anything whose values live on a circle rather than on a
+number line).
 
-The toolbox solves a single recurring problem: phase / angle / direction
-outcomes don't behave well in standard linear-mixed-model pipelines — the
-$\pm\pi$ seam creates phantom discontinuities, `fitlme` ignores periodicity,
-and the existing R packages (`brms`, `bpnreg`, `lme4`'s sin/cos approach) each
-speak a different dialect. `circ_fit` wraps four estimators (the in-house
-`fitcirc_lme` von-Mises GLMM, Bayesian `brms`, frequentist sin/cos `lme4`, and
-Bayesian projected-normal `bpnreg`) behind one MATLAB-side dispatcher, a
-single Wilkinson-formula signature, and a single output struct schema.
+## Why this is needed
+
+If your outcome is an angle and you reach for `fitlm` / `fitlme` / `fitglm`,
+you will get a wrong answer. The reason: linear models treat the response as
+a real number, so they think 179° and –179° are 358° apart when they are
+actually 2° apart. Every quantity that depends on residual size — the
+coefficient estimates, the standard errors, the p-values, the R² — gets
+distorted by the wrap-around. The bigger the angular spread of your data,
+the worse the distortion gets.
+
+The right approach is a **circular regression**: the response is modeled by a
+distribution on the circle (the von Mises distribution, the circular analogue
+of the Normal), the residual size is measured by `1 − cos(y − ŷ)` rather than
+`(y − ŷ)²`, and the wrap-around is handled correctly by construction. There
+are well-established circular-regression methods in the statistics literature,
+and several mature R packages implement them (`brms`, `bpnreg`, `lme4`'s
+sin/cos workaround). **MATLAB has no native support for any of this.** A grad
+student running a MATLAB analysis pipeline who suddenly needs to regress an
+angle on age has to either (a) misuse `fitlme` and silently bias the result,
+(b) bridge into R for every fit, or (c) hand-code a von Mises GLMM from
+scratch. None of those scale.
+
+## What this toolbox provides
+
+A single MATLAB entry point — `circ_fit(table, formula, backend, options)` —
+that runs a proper circular regression and returns a uniform output struct
+regardless of which underlying estimator did the work. Four estimator
+backends are available:
+
+| Backend | Estimator | Where it runs |
+|---|---|---|
+| `'fitcirc_lme'` (default) | Native EM von Mises GLMM with subject random intercept and cluster-robust standard errors | MATLAB only |
+| `'brms'` | Bayesian von Mises GLMM | R (`brms` + Stan) |
+| `'lme4'` | Two parallel sin/cos linear mixed models combined via `atan2` | R (`lme4`) |
+| `'bpnreg'` | Bayesian projected-normal mixed model | R (`bpnreg`) |
+
+The reason for shipping four is that they make different trade-offs (the
+**Backend chooser** table below lists them side by side). If a result is
+robust, all four backends will agree; if not, you want to know that.
+
+What the toolbox adds on top of the bare estimators:
+
+- **One formula grammar.** The same Wilkinson string
+  (`y ~ Age^2 + sex + (1|Subj_ID)`) drives every backend. No reformatting
+  between MATLAB and R conventions.
+- **One result struct.** Every backend returns the same field names
+  (`Coefficients`, `AgeEffect.pValue`, `GOF.R2_circ_marginal`,
+  `GOF.R2_circ_conditional`, `Trajectory`, ...). Downstream code that reads
+  the result does not change when you swap backends.
+- **An omnibus age-effect test.** A single p-value answering "does age matter
+  for this response, at all?" — computed as a joint Wald across every
+  age-involving term (polynomial main effects + every age × covariate
+  interaction). The right test for the "is there an age effect?" sentence
+  in a paper.
+- **Order selection.** The polynomial order in the predictor is chosen by
+  step-up likelihood-ratio test (or LOO / WAIC for the Bayesian backends),
+  capped at a user-set maximum.
+- **Marginal and conditional R²** on the angle scale, comparable across
+  backends, computed via a Nakagawa–Schielzeth ICC adjustment adapted to the
+  von Mises GLMM. The tutorial below explains what each one tells you.
+- **Plotting that handles the ±π seam by construction.** `plot_circ_fit`
+  draws the trajectory at its value plus copies at ±2π so the curve never
+  visibly jumps across the wrap.
+- **`fitcirc_lme` itself** — the native MATLAB von Mises GLMM that the
+  default backend wraps. Closed-form exact E-step (no Laplace approximation),
+  monotone-EM update guarded against likelihood decrease, warm-start across
+  polynomial orders so the order-selection LRT is well posed by construction,
+  cluster-robust sandwich standard errors keyed on the random-effect grouping
+  variable, and a halfcauchy prior on the subject random-phase concentration
+  that keeps the marginal log-likelihood finite when subjects collapse onto a
+  shared baseline.
+
+For a hands-on introduction with simulated data, see the [Tutorial
+section below](#tutorial-simulate-fit-recover) (or run [`tutorial.m`](tutorial.m)
+in MATLAB).
 
 ## Quick start
 
 ```matlab
-addpath(genpath('circ_fit_toolbox'));
+addpath(genpath('circular_regression_toolbox'));
 
 % tbl needs: <response>, <predictor>, Subj_ID (and optionally electrode, sex).
 % Response is an angle in radians; the toolbox centers by circular mean
@@ -50,8 +116,8 @@ synthetic dataset with known parameters and walks through every piece of
 the result against the truth that produced it. Takes a few seconds.
 
 ```matlab
-addpath(genpath('/path/to/circ_fit_toolbox'));
-run(fullfile('/path/to/circ_fit_toolbox', 'tutorial.m'));
+addpath(genpath('/path/to/circular_regression_toolbox'));
+run(fullfile('/path/to/circular_regression_toolbox', 'tutorial.m'));
 ```
 
 Inline walkthrough (same content as the script, with prose between blocks):
@@ -269,7 +335,7 @@ Detailed per-function docs in [`docs/functions.md`](docs/functions.md).
 ## Repository layout
 
 ```
-circ_fit_toolbox/
+circular_regression_toolbox/
 ├── README.md                  (this file)
 ├── tutorial.m                 (runnable simulate-and-recover walkthrough)
 ├── docs/
@@ -333,20 +399,20 @@ function.
 ### As a Git submodule
 
 ```sh
-git submodule add git@github.com:preraulab/circ_fit_toolbox.git path/to/circ_fit_toolbox
+git submodule add git@github.com:preraulab/circular_regression_toolbox.git path/to/circular_regression_toolbox
 git submodule update --init --recursive
 ```
 
 In MATLAB:
 
 ```matlab
-addpath(genpath('path/to/circ_fit_toolbox'));
+addpath(genpath('path/to/circular_regression_toolbox'));
 ```
 
 ### Standalone
 
 ```sh
-git clone git@github.com:preraulab/circ_fit_toolbox.git
+git clone git@github.com:preraulab/circular_regression_toolbox.git
 ```
 
 ## Configuration
