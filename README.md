@@ -715,7 +715,7 @@ The full per-test inventory is in [`docs/functions.md`](docs/functions.md#tests)
 ## Conventions
 
 - **Centering.** Inputs are centered by their circular mean
-  $\theta_\text{shift} = \text{atan2}\!\bigl(\overline{\sin y},\ \overline{\cos y}\bigr)$
+  $\theta_\text{shift} = \text{atan2}\bigl(\overline{\sin y},\ \overline{\cos y}\bigr)$
   before fitting; $\theta_\text{shift}$ is recorded on the result and added
   back for predictions. This is the recommended fix for the von Mises
   seam-multimodality problem.

@@ -29,7 +29,7 @@ Let $y_{ij} \in (-\pi, \pi]$ be the angular response. Define the two
 real-valued projections
 
 $$
-s_{ij} \;=\; \sin y_{ij}, \qquad c_{ij} \;=\; \cos y_{ij}.
+s_{ij}  =  \sin y_{ij}, \qquad c_{ij}  =  \cos y_{ij}.
 $$
 
 For each projection, fit an independent linear mixed-effects model in
@@ -37,8 +37,8 @@ $\sin$/$\cos$ space:
 
 $$
 \begin{aligned}
-s_{ij} &\;=\; X_{ij}\beta^{(s)} + \phi_i^{(s)} + \varepsilon_{ij}^{(s)}, &\quad \phi_i^{(s)} &\;\sim\; \mathcal{N}(0,\ \sigma^{2(s)}_\phi), \quad \varepsilon_{ij}^{(s)} \;\sim\; \mathcal{N}(0,\ \sigma^{2(s)}_\varepsilon), \\
-c_{ij} &\;=\; X_{ij}\beta^{(c)} + \phi_i^{(c)} + \varepsilon_{ij}^{(c)}, &\quad \phi_i^{(c)} &\;\sim\; \mathcal{N}(0,\ \sigma^{2(c)}_\phi), \quad \varepsilon_{ij}^{(c)} \;\sim\; \mathcal{N}(0,\ \sigma^{2(c)}_\varepsilon).
+s_{ij} & =  X_{ij}\beta^{(s)} + \phi_i^{(s)} + \varepsilon_{ij}^{(s)}, &\quad \phi_i^{(s)} & \sim  \mathcal{N}(0,\ \sigma^{2(s)}_\phi), \quad \varepsilon_{ij}^{(s)}  \sim  \mathcal{N}(0,\ \sigma^{2(s)}_\varepsilon), \\
+c_{ij} & =  X_{ij}\beta^{(c)} + \phi_i^{(c)} + \varepsilon_{ij}^{(c)}, &\quad \phi_i^{(c)} & \sim  \mathcal{N}(0,\ \sigma^{2(c)}_\phi), \quad \varepsilon_{ij}^{(c)}  \sim  \mathcal{N}(0,\ \sigma^{2(c)}_\varepsilon).
 \end{aligned}
 $$
 
@@ -74,7 +74,7 @@ At each evaluation point $x^\star \in \mathbb{R}$ (and category settings
 $\text{cat}^\star$), the angular trajectory is
 
 $$
-\hat\mu^\star \;=\; \text{atan2}\!\bigl(X^\star\hat\beta^{(s)},\ X^\star\hat\beta^{(c)}\bigr) \;\in\; (-\pi, \pi].
+\hat\mu^\star  =  \text{atan2}\bigl(X^\star\hat\beta^{(s)},\ X^\star\hat\beta^{(c)}\bigr)  \in  (-\pi, \pi].
 $$
 
 **Why this can wrap a full revolution.** As $x^\star$ varies, the pair
@@ -89,7 +89,7 @@ sin/cos parallel representation can.
 the predicted vector's magnitude:
 
 $$
-\hat R^\star \;=\; \sqrt{(X^\star\hat\beta^{(s)})^2 + (X^\star\hat\beta^{(c)})^2}.
+\hat R^\star  =  \sqrt{(X^\star\hat\beta^{(s)})^2 + (X^\star\hat\beta^{(c)})^2}.
 $$
 
 If $\hat R^\star \to 0$ at some $x^\star$ (the predicted sin and cos
@@ -109,8 +109,8 @@ predictions:
 1. Draw $B$ replicates of the response under each fitted model:
 
    $$
-   \tilde s_{ij}^{(b)} \;\sim\; \mathcal{N}\!\bigl(X_{ij}\hat\beta^{(s)} + \hat\phi_i^{(s)},\ \hat\sigma^{2(s)}_\varepsilon\bigr), \qquad
-   \tilde c_{ij}^{(b)} \;\sim\; \mathcal{N}\!\bigl(X_{ij}\hat\beta^{(c)} + \hat\phi_i^{(c)},\ \hat\sigma^{2(c)}_\varepsilon\bigr).
+   \tilde s_{ij}^{(b)}  \sim  \mathcal{N}\bigl(X_{ij}\hat\beta^{(s)} + \hat\phi_i^{(s)},\ \hat\sigma^{2(s)}_\varepsilon\bigr), \qquad
+   \tilde c_{ij}^{(b)}  \sim  \mathcal{N}\bigl(X_{ij}\hat\beta^{(c)} + \hat\phi_i^{(c)},\ \hat\sigma^{2(c)}_\varepsilon\bigr).
    $$
 
 2. Refit each component LME on $(\tilde s, \tilde c)^{(b)}$ to obtain
@@ -119,7 +119,7 @@ predictions:
 3. Compute the replicate trajectory at each eval point:
 
    $$
-   \hat\mu^{\star,(b)} \;=\; \text{atan2}\!\bigl(X^\star\hat\beta^{(s,b)},\ X^\star\hat\beta^{(c,b)}\bigr).
+   \hat\mu^{\star,(b)}  =  \text{atan2}\bigl(X^\star\hat\beta^{(s,b)},\ X^\star\hat\beta^{(c,b)}\bigr).
    $$
 
 4. The 95% trajectory band is the 2.5% / 97.5% quantiles across $b = 1,
@@ -141,20 +141,20 @@ is honest.
 
 ## 4. Order selection: combined sin+cos LRT
 
-For each candidate polynomial order $k$ in $0, 1, \ldots, \texttt{MaxOrder}$,
+For each candidate polynomial order $k$ in $0, 1, \ldots, `MaxOrder`$,
 the adapter fits both component LMEs and computes the standard
 likelihood-ratio test against the order-$(k-1)$ component:
 
 $$
-T_s^{(k)} \;=\; -2\bigl(\ell_s^{(k-1)} - \ell_s^{(k)}\bigr) \;\sim\; \chi^2_{\Delta_k},
+T_s^{(k)}  =  -2\bigl(\ell_s^{(k-1)} - \ell_s^{(k)}\bigr)  \sim  \chi^2_{\Delta_k},
 \qquad
-T_c^{(k)} \;=\; -2\bigl(\ell_c^{(k-1)} - \ell_c^{(k)}\bigr) \;\sim\; \chi^2_{\Delta_k}.
+T_c^{(k)}  =  -2\bigl(\ell_c^{(k-1)} - \ell_c^{(k)}\bigr)  \sim  \chi^2_{\Delta_k}.
 $$
 
 The **combined p-value** is the Bonferroni union
 
 $$
-p_\text{combined}^{(k)} \;=\; 2 \min\!\bigl(p_s^{(k)},\ p_c^{(k)}\bigr).
+p_\text{combined}^{(k)}  =  2 \min\bigl(p_s^{(k)},\ p_c^{(k)}\bigr).
 $$
 
 This is conservative: it controls the joint type-I rate at $\alpha$ when
@@ -193,9 +193,9 @@ The two LMEs each return their own marginal $R^2$ (via `lme4::r.squaredGLMM`,
 Nakagawa-Schielzeth):
 
 $$
-R^2_{m, s} \;=\; \frac{\text{Var}_\text{fixed}(s)}{\text{Var}_\text{fixed}(s) + \sigma^{2(s)}_\phi + \sigma^{2(s)}_\varepsilon},
+R^2_{m, s}  =  \frac{\text{Var}_\text{fixed}(s)}{\text{Var}_\text{fixed}(s) + \sigma^{2(s)}_\phi + \sigma^{2(s)}_\varepsilon},
 \qquad
-R^2_{m, c} \;=\; \frac{\text{Var}_\text{fixed}(c)}{\text{Var}_\text{fixed}(c) + \sigma^{2(c)}_\phi + \sigma^{2(c)}_\varepsilon}.
+R^2_{m, c}  =  \frac{\text{Var}_\text{fixed}(c)}{\text{Var}_\text{fixed}(c) + \sigma^{2(c)}_\phi + \sigma^{2(c)}_\varepsilon}.
 $$
 
 These are reported in the result's `Diagnostics.PerComponentR2` field
@@ -207,7 +207,7 @@ to $0$ or $\pi/2$ in mean direction.)
 ### 5.3 MAE
 
 $$
-\text{MAE}_\text{angular} \;=\; \frac{1}{n} \sum_{i, j} \bigl|y_{ij} - \hat y_{ij}\bigr|_\text{wrap}.
+\text{MAE}_\text{angular}  =  \frac{1}{n} \sum_{i, j} \bigl|y_{ij} - \hat y_{ij}\bigr|_\text{wrap}.
 $$
 
 ---
@@ -238,10 +238,3 @@ $$
 
 ---
 
-## 8. References
-
-- Bates, D., Mächler, M., Bolker, B., & Walker, S. (2015). Fitting linear mixed-effects models using lme4. *Journal of Statistical Software* **67**, 1–48.
-- Bates, D. M. (2010). *lme4: Mixed-effects modeling with R*. Springer (draft book; see also `lme4`'s vignettes).
-- Davison, A. C., & Hinkley, D. V. (1997). *Bootstrap Methods and Their Application*. Cambridge. (Parametric bootstrap.)
-- Mardia, K. V., & Jupp, P. E. (2000). *Directional Statistics*. Wiley. Chapter 8 for the sin/cos two-stage representation of angular data.
-- Nakagawa, S., & Schielzeth, H. (2013). A general and simple method for obtaining $R^2$ from generalized linear mixed-effects models. *Methods in Ecology and Evolution* **4**, 133–142.

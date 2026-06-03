@@ -193,8 +193,8 @@ result = circ_fit_fitcirc(tbl, opts)
   $p < 0.05$; stop at the first non-significant step. Documented inline as
   matching the lme/blme path in `get_best_iterative_order.m`.
 - **Trajectory CI.** $\eta = X\beta$ on the evaluation grid; standard error
-  $\sqrt{\text{diag}(X\,\Sigma_\beta\, X^\top)}$ with $\Sigma_\beta$
-  the cluster-robust sandwich; 95% CI is $\eta \pm 1.96\,\text{SE}$. The
+  $\sqrt{\text{diag}(X \Sigma_\beta  X^\top)}$ with $\Sigma_\beta$
+  the cluster-robust sandwich; 95% CI is $\eta \pm 1.96 \text{SE}$. The
   trajectory is unwrapped per electrode along the predictor.
 - **Age-effect test.** Joint Wald that the entire `ContrastIndex.x_age` block
   (polynomial main effects + every age-interaction) is zero. Method
@@ -259,15 +259,15 @@ measures how sure we are of subject $i$'s offset (near 1 = very sure).
 - $\kappa$: the mean resultant length of the residual angles (each
   weighted by $\rho_i$), converted to a concentration.
 - $\kappa_\phi$: maximize the exact one-dimensional objective
-  $n_{\text{subj}}\bigl(R_\phi\,k - \log I_0(k)\bigr) + \log\mathrm{prior}(k)$,
-  where $R_\phi = \mathrm{mean}_i\,\rho_i\cos\mu_{i,\text{post}}$ measures
+  $n_{\text{subj}}\bigl(R_\phi k - \log I_0(k)\bigr) + \log\mathrm{prior}(k)$,
+  where $R_\phi = \mathrm{mean}_i \rho_i\cos\mu_{i,\text{post}}$ measures
   how tightly the estimated offsets bunch around 0. The prior keeps
   $\kappa_\phi$ finite in the case $R_\phi \to 1$ (offsets all collapse to
   0), which would otherwise drive $\kappa_\phi \to \infty$ and overflow the
   log-likelihood. See `KappaPhiPrior`.
 
 **Marginal log-likelihood** (exact, no approximation):
-$\log p(y_i) = \log I_0(K_{i,\text{post}}) - n_i \log(2\pi\,I_0(\kappa)) - \log I_0(\kappa_\phi)$,
+$\log p(y_i) = \log I_0(K_{i,\text{post}}) - n_i \log(2\pi I_0(\kappa)) - \log I_0(\kappa_\phi)$,
 reported unpenalized so it is comparable across nested models.
 
 **Inference.** Cluster-robust ("sandwich") SEs on $\beta$ with each subject
@@ -455,7 +455,7 @@ shift value yourself.
 
 | Name | Type | Meaning |
 |---|---|---|
-| `theta_shift` | scalar | Circular mean of $y$, $\text{atan2}(\overline{\sin y},\,\overline{\cos y})$, on $(-\pi,\pi]$. |
+| `theta_shift` | scalar | Circular mean of $y$, $\text{atan2}(\overline{\sin y}, \overline{\cos y})$, on $(-\pi,\pi]$. |
 | `y_shifted` | vector | $\text{wrap}(y - \theta_\text{shift})$ on $(-\pi,\pi]$ (only computed if requested). |
 
 **Side effects.** None.
@@ -544,7 +544,7 @@ gof = circ_gof(y, yhat, n_par)
 | Field | Type | Meaning |
 |---|---|---|
 | `R2_circ` | scalar | $1 - \text{SSE}_\text{circ} / \text{SST}_\text{circ}$, where $\text{SSE}_\text{circ} = \sum (1 - \cos(\text{wrap}(y - \widehat y)))$ and $\text{SST}_\text{circ} = \sum (1 - \cos(\text{wrap}(y - \bar y_\text{circ})))$. |
-| `R2_adj` | scalar | $1 - (1 - R^2)\,(n-1)/(n - n_\text{par})$ when `n_par` is given, else `NaN`. |
+| `R2_adj` | scalar | $1 - (1 - R^2) (n-1)/(n - n_\text{par})$ when `n_par` is given, else `NaN`. |
 | `MAE_angular` | scalar | $\overline{\lvert\text{wrap}(y - \widehat y)\rvert}$. |
 
 **Side effects.** None.
@@ -599,7 +599,7 @@ conditioning + collinearity pathology in iterative estimators.
 **Notes.**
 - Build: $M = [x, x^2, ..., x^k]$; centered $M_c = M - \overline M$;
   $[Q, R] = \text{qr}(M_c, 0)$; $P = Q$; `info = {mean, R, k}`.
-- Apply: $M_e$ from new $x$; $P_e = (M_e - \text{info.means})\,/\,\text{info.R}$.
+- Apply: $M_e$ from new $x$; $P_e = (M_e - \text{info.means}) / \text{info.R}$.
 - Per the inline docstring, the fitted curve, joint Wald tests, $R^2$,
   residuals and prediction intervals are unchanged by switching to this
   basis. Per-coefficient Wald p-values gain a standalone marginal

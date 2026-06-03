@@ -22,39 +22,39 @@ sin/cos approach.
 For each observation $i, j$ introduce a latent bivariate Gaussian vector
 
 $$
-\mathbf{r}_{ij} \;=\; \begin{pmatrix} r_{ij}^{(1)} \\ r_{ij}^{(2)} \end{pmatrix} \;\in\; \mathbb{R}^2,
+\mathbf{r}_{ij}  =  \begin{pmatrix} r_{ij}^{(1)} \\ r_{ij}^{(2)} \end{pmatrix}  \in  \mathbb{R}^2,
 $$
 
 with the observed angle defined as
 
 $$
-y_{ij} \;=\; \text{atan2}\!\bigl(r_{ij}^{(2)},\ r_{ij}^{(1)}\bigr) \;\in\; (-\pi, \pi].
+y_{ij}  =  \text{atan2}\bigl(r_{ij}^{(2)},\ r_{ij}^{(1)}\bigr)  \in  (-\pi, \pi].
 $$
 
 The latent vector has fixed effects on each component, plus a per-
 subject random intercept on each component:
 
 $$
-\mathbf{r}_{ij} \;=\; \begin{pmatrix} X_{ij}\beta^{(1)} \\ X_{ij}\beta^{(2)} \end{pmatrix}
-\;+\; \begin{pmatrix} \phi_i^{(1)} \\ \phi_i^{(2)} \end{pmatrix}
-\;+\; \boldsymbol\varepsilon_{ij},
+\mathbf{r}_{ij}  =  \begin{pmatrix} X_{ij}\beta^{(1)} \\ X_{ij}\beta^{(2)} \end{pmatrix}
+ +  \begin{pmatrix} \phi_i^{(1)} \\ \phi_i^{(2)} \end{pmatrix}
+ +  \boldsymbol\varepsilon_{ij},
 $$
 
 with
 
 $$
-\begin{pmatrix} \phi_i^{(1)} \\ \phi_i^{(2)} \end{pmatrix} \;\sim\; \mathcal{N}_2(\mathbf{0},\ \Sigma_\phi),
+\begin{pmatrix} \phi_i^{(1)} \\ \phi_i^{(2)} \end{pmatrix}  \sim  \mathcal{N}_2(\mathbf{0},\ \Sigma_\phi),
 \qquad
-\boldsymbol\varepsilon_{ij} \;\sim\; \mathcal{N}_2(\mathbf{0},\ \Sigma_\varepsilon),
+\boldsymbol\varepsilon_{ij}  \sim  \mathcal{N}_2(\mathbf{0},\ \Sigma_\varepsilon),
 $$
 
 independent over $i$ and over $(i, j)$ respectively. The two covariance
 matrices
 
 $$
-\Sigma_\phi \;=\; \begin{pmatrix} \sigma_{\phi,11}^2 & \sigma_{\phi,12} \\ \sigma_{\phi,12} & \sigma_{\phi,22}^2 \end{pmatrix},
+\Sigma_\phi  =  \begin{pmatrix} \sigma_{\phi,11}^2 & \sigma_{\phi,12} \\ \sigma_{\phi,12} & \sigma_{\phi,22}^2 \end{pmatrix},
 \qquad
-\Sigma_\varepsilon \;=\; \begin{pmatrix} \sigma_{\varepsilon,11}^2 & \sigma_{\varepsilon,12} \\ \sigma_{\varepsilon,12} & \sigma_{\varepsilon,22}^2 \end{pmatrix}
+\Sigma_\varepsilon  =  \begin{pmatrix} \sigma_{\varepsilon,11}^2 & \sigma_{\varepsilon,12} \\ \sigma_{\varepsilon,12} & \sigma_{\varepsilon,22}^2 \end{pmatrix}
 $$
 
 are estimated freely. **Note the off-diagonal terms.** This is the key
@@ -74,16 +74,16 @@ integrating out the latent magnitude $R_{ij} = \|\mathbf{r}_{ij}\|$ is
 the projected-normal density (Wang & Gelfand 2013):
 
 $$
-p(y \mid \mu, \Sigma) \;=\; \frac{\phi_2(\mathbf{0} \mid \mu, \Sigma)}{}
-\Bigl[ 1 + \frac{D(\mu, y)\,\Phi\!\bigl(D(\mu, y)\bigr)}{\phi_1\!\bigl(D(\mu, y)\bigr)} \Bigr],
+p(y \mid \mu, \Sigma)  =  \frac{\phi_2(\mathbf{0} \mid \mu, \Sigma)}{}
+\Bigl[ 1 + \frac{D(\mu, y) \Phi\bigl(D(\mu, y)\bigr)}{\phi_1\bigl(D(\mu, y)\bigr)} \Bigr],
 $$
 
 with the projection function
 
 $$
-D(\mu, y) \;=\; \frac{\mathbf{u}_y^\top \Sigma^{-1} \mu}{\sqrt{\mathbf{u}_y^\top \Sigma^{-1} \mathbf{u}_y}},
+D(\mu, y)  =  \frac{\mathbf{u}_y^\top \Sigma^{-1} \mu}{\sqrt{\mathbf{u}_y^\top \Sigma^{-1} \mathbf{u}_y}},
 \qquad
-\mathbf{u}_y \;=\; \begin{pmatrix} \cos y \\ \sin y \end{pmatrix}.
+\mathbf{u}_y  =  \begin{pmatrix} \cos y \\ \sin y \end{pmatrix}.
 $$
 
 `bpnreg` evaluates this density at every MCMC iteration; the user need
@@ -140,29 +140,29 @@ Polynomial order selection uses the **Watanabe-Akaike Information
 Criterion** (WAIC; Watanabe 2010):
 
 $$
-\text{WAIC} \;=\; -2\bigl(\text{lppd} - p_{\text{WAIC}}\bigr),
+\text{WAIC}  =  -2\bigl(\text{lppd} - p_{\text{WAIC}}\bigr),
 $$
 
 with the log pointwise predictive density
 
 $$
-\text{lppd} \;=\; \sum_{i, j} \log \frac{1}{S} \sum_{s=1}^{S} p\!\bigl(y_{ij} \mid \theta^{(s)}\bigr)
+\text{lppd}  =  \sum_{i, j} \log \frac{1}{S} \sum_{s=1}^{S} p\bigl(y_{ij} \mid \theta^{(s)}\bigr)
 $$
 
 and the effective number of parameters
 
 $$
-p_{\text{WAIC}} \;=\; \sum_{i, j} \text{Var}_{s = 1, \ldots, S}\!\bigl[\log p\!\bigl(y_{ij} \mid \theta^{(s)}\bigr)\bigr].
+p_{\text{WAIC}}  =  \sum_{i, j} \text{Var}_{s = 1, \ldots, S}\bigl[\log p\bigl(y_{ij} \mid \theta^{(s)}\bigr)\bigr].
 $$
 
 The selection rule is the standard "lower WAIC wins" with a one-SE
 buffer:
 
 $$
-k_\text{selected} \;=\; \arg\min_k \text{WAIC}_k, \quad \text{but stop stepping up when}\quad \text{WAIC}_k - \text{WAIC}_{k_\text{selected}} > \text{SE}\bigl(\text{WAIC}_k - \text{WAIC}_{k_\text{selected}}\bigr).
+k_\text{selected}  =  \arg\min_k \text{WAIC}_k, \quad \text{but stop stepping up when}\quad \text{WAIC}_k - \text{WAIC}_{k_\text{selected}} > \text{SE}\bigl(\text{WAIC}_k - \text{WAIC}_{k_\text{selected}}\bigr).
 $$
 
-The R-side adapter sweeps $k = 0, 1, \ldots, \texttt{MaxOrder}$ and
+The R-side adapter sweeps $k = 0, 1, \ldots, `MaxOrder`$ and
 records each WAIC.
 
 The full per-order audit is in `OrderTable`:
@@ -184,7 +184,7 @@ posterior median, posterior SD, and the 2-sided posterior probability
 of being on the wrong side of zero:
 
 $$
-p_k^{(c)} \;=\; 2 \min\bigl(\Pr(\beta_k^{(c)} > 0 \mid y),\ \Pr(\beta_k^{(c)} < 0 \mid y)\bigr), \quad c \in \{1, 2\}.
+p_k^{(c)}  =  2 \min\bigl(\Pr(\beta_k^{(c)} > 0 \mid y),\ \Pr(\beta_k^{(c)} < 0 \mid y)\bigr), \quad c \in \{1, 2\}.
 $$
 
 These are component-level summaries, not joint angular statements; see
@@ -195,7 +195,7 @@ Section 5.3 for the joint omnibus test.
 For each evaluation point, the angular trajectory is
 
 $$
-\hat\mu^\star \;=\; \text{median}_{s = 1, \ldots, S}\,\text{atan2}\!\bigl(X^\star\beta^{(2,s)},\ X^\star\beta^{(1,s)}\bigr).
+\hat\mu^\star  =  \text{median}_{s = 1, \ldots, S} \text{atan2}\bigl(X^\star\beta^{(2,s)},\ X^\star\beta^{(1,s)}\bigr).
 $$
 
 The 95% credible band is the 2.5% / 97.5% quantiles across $s$, with
@@ -211,7 +211,7 @@ there an age effect on the angle." The adapter reports the
 **WAIC-difference probability**:
 
 $$
-\text{AgeEffect.pValue} \;=\; \Pr\!\bigl(\text{WAIC}_{k_\text{selected}} < \text{WAIC}_0 \mid y\bigr),
+\text{AgeEffect.pValue}  =  \Pr\bigl(\text{WAIC}_{k_\text{selected}} < \text{WAIC}_0 \mid y\bigr),
 $$
 
 approximated by the proportion of MCMC iterations at which the larger-
@@ -281,10 +281,3 @@ familiarity.
 
 ---
 
-## 9. References
-
-- Mulder, K., & Klugkist, I. (2017). bpnreg: Bayesian Projected Normal Regression Models for Circular Data. R package version 2.0.x.
-- Presnell, B., Morrison, S. P., & Littell, R. C. (1998). Projected multivariate linear models for directional data. *Journal of the American Statistical Association* **93**, 1068–1077.
-- Wang, F., & Gelfand, A. E. (2013). Directional data analysis under the general projected normal distribution. *Statistical Methodology* **10**, 113–127.
-- Watanabe, S. (2010). Asymptotic equivalence of Bayes cross validation and widely applicable information criterion in singular learning theory. *J. Machine Learning Research* **11**, 3571–3594.
-- Nuñez-Antonio, G., & Gutiérrez-Peña, E. (2014). A Bayesian model for longitudinal circular data based on the projected normal distribution. *Computational Statistics & Data Analysis* **71**, 506–519.

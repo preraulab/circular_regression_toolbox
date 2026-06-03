@@ -25,20 +25,20 @@ $\phi_i \in (-\pi, \pi]$, concentrations $\kappa, \kappa_\phi > 0$.
 **Likelihood.**
 
 $$
-y_{ij} \mid \beta, \phi_i, \kappa \;\sim\; \text{vonMises}(\eta_{ij},\ \kappa),
+y_{ij} \mid \beta, \phi_i, \kappa  \sim  \text{vonMises}(\eta_{ij},\ \kappa),
 \qquad \eta_{ij} = X_{ij}\beta + \phi_i.
 $$
 
 **Link function.** brms parameterizes the von Mises location through the
-$\text{tan\_half}$ link:
+`tan_half` link:
 
 $$
-\mu_{ij} \;=\; 2\arctan(\eta_{ij}),
+\mu_{ij}  =  2\arctan(\eta_{ij}),
 $$
 
 so the linear predictor $\eta_{ij} \in \mathbb{R}$ maps onto $\mu_{ij} \in (-\pi, \pi)$
 smoothly. This avoids the ad-hoc wrap-handling that would be required if
-the linear predictor itself were the angle. **Note: $\text{tan\_half}$ is
+the linear predictor itself were the angle. **Note: `tan_half` is
 still bounded within one revolution of the response** — the map is
 $\mathbb{R} \to (-\pi, \pi)$ rather than $\mathbb{R} \to \mathbb{R}/2\pi\mathbb{Z}$,
 so a trajectory that physically swings more than $2\pi$ across the
@@ -47,7 +47,7 @@ predictor range cannot be represented.
 **Random-effect structure.**
 
 $$
-\phi_i \mid \sigma_\phi \;\sim\; \mathcal{N}(0,\ \sigma_\phi^2),
+\phi_i \mid \sigma_\phi  \sim  \mathcal{N}(0,\ \sigma_\phi^2),
 \qquad i = 1, \ldots, m, \text{ independent.}
 $$
 
@@ -63,7 +63,7 @@ concentrated.)
 z-scores Age:
 
 $$
-\tilde x \;=\; \frac{x - \bar x}{\text{sd}(x)},
+\tilde x  =  \frac{x - \bar x}{\text{sd}(x)},
 $$
 
 and constructs the polynomial in $\tilde x$. Predictions are
@@ -79,7 +79,7 @@ brms's default weakly-informative priors are kept:
 
 | Parameter | Prior |
 |---|---|
-| Fixed-effect coefficients $\beta_k$, $k \ne 0$ (intercept) | $\mathcal{N}(0,\ \sigma_\beta^2)$ with $\sigma_\beta$ from brms's data-scale default (typically $\sigma_\beta = 2.5\,\text{sd}(\tilde x)^{-1}$ after standardization) |
+| Fixed-effect coefficients $\beta_k$, $k \ne 0$ (intercept) | $\mathcal{N}(0,\ \sigma_\beta^2)$ with $\sigma_\beta$ from brms's data-scale default (typically $\sigma_\beta = 2.5 \text{sd}(\tilde x)^{-1}$ after standardization) |
 | Intercept $\beta_0$ | Student's $t_{3}(0,\ 2.5)$ |
 | Random-intercept SD $\sigma_\phi$ | Half-Student's $t_{3}(0,\ 2.5)$ |
 | Response concentration $\kappa$ | Gamma(2, 0.1) (brms default for $\text{kappa}$) |
@@ -129,7 +129,7 @@ decides whether to act).
 ## 4. Order selection: LOO
 
 With `Select = true`, the R-side adapter fits the model at every
-polynomial order $k = 0, 1, \ldots, \texttt{MaxOrder}$. For each fit it
+polynomial order $k = 0, 1, \ldots, `MaxOrder`$. For each fit it
 records:
 
 - the per-observation expected log pointwise predictive density (ELPD)
@@ -141,7 +141,7 @@ records:
 **Selection rule.** Step up the order while
 
 $$
-\text{elpd}\,_k - \text{elpd}\,_{k-1} \;>\; 2 \cdot \text{se}\bigl(\text{elpd}\,_k - \text{elpd}\,_{k-1}\bigr),
+\text{elpd} _k - \text{elpd} _{k-1}  >  2 \cdot \text{se}\bigl(\text{elpd} _k - \text{elpd} _{k-1}\bigr),
 $$
 
 i.e. accept the larger order only when its predictive-density improvement
@@ -174,7 +174,7 @@ For each fixed-effect coefficient $\beta_k$, posterior summaries:
   of zero**:
 
 $$
-p_k \;=\; 2 \min\bigl(\Pr(\beta_k > 0 \mid y),\ \Pr(\beta_k < 0 \mid y)\bigr).
+p_k  =  2 \min\bigl(\Pr(\beta_k > 0 \mid y),\ \Pr(\beta_k < 0 \mid y)\bigr).
 $$
 
 This is the "Bayesian p" used elsewhere in the literature (e.g. brms's
@@ -192,14 +192,14 @@ returns whichever was selected:
    half-space defined by its posterior-mean direction:
 
    $$
-   p \;=\; 1 - \Pr\!\bigl(\beta_\text{age}^\top \hat v > 0 \mid y\bigr), \qquad
+   p  =  1 - \Pr\bigl(\beta_\text{age}^\top \hat v > 0 \mid y\bigr), \qquad
    \hat v = \mathbb{E}[\beta_\text{age} \mid y] / \|\mathbb{E}[\beta_\text{age} \mid y]\|.
    $$
 
 2. **Bayes factor against the no-age model** via Savage–Dickey:
 
    $$
-   \text{BF}_{10} \;=\; \frac{\pi(0)}{\Pr(\beta_\text{age} = 0 \mid y)},
+   \text{BF}_{10}  =  \frac{\pi(0)}{\Pr(\beta_\text{age} = 0 \mid y)},
    $$
 
    approximated from the posterior marginal at zero. The reported
@@ -215,7 +215,7 @@ For each evaluation point $(x^\star, \text{electrode}^\star, \text{sex}^\star)$
 the trajectory mean and band are computed from the joint posterior:
 
 $$
-\mu^\star \;=\; \text{median}_{s = 1,\ldots,S}\,\bigl(2\arctan(X^\star\beta^{(s)})\bigr),
+\mu^\star  =  \text{median}_{s = 1,\ldots,S} \bigl(2\arctan(X^\star\beta^{(s)})\bigr),
 $$
 
 with $\beta^{(s)}$ the $s$-th MCMC draw. The 95% credible band is the
@@ -243,7 +243,7 @@ adjustment; this is not currently implemented in the brms adapter.
 | Random intercepts are Gaussian (not vM) | Diverges from `fitcirc_lme` when subject offsets are nearly uniform on the circle (rare). | Documented; results are typically within $10^{-3}$ rad of `fitcirc_lme` in lifespan-cohort regimes. |
 | HMC has converged | Misleading inference if $\hat R > 1.01$ or ESS too small. | Diagnostic warning emitted on the MATLAB side. |
 | LOO-PSIS is reliable | Fails when some Pareto-$k$ diagnostics exceed 0.7 (a small number of observations have undue influence). | LOO returns those diagnostics; the impl warns when any $k > 0.7$. |
-| Trajectory fits within one revolution | $\text{tan\_half}$ is bounded to $(-\pi, \pi)$. Same limitation as `fitcirc_lme`. | Documented. Switch to `bpnreg` for full-revolution trajectories. |
+| Trajectory fits within one revolution | `tan_half` is bounded to $(-\pi, \pi)$. Same limitation as `fitcirc_lme`. | Documented. Switch to `bpnreg` for full-revolution trajectories. |
 
 ---
 
@@ -263,11 +263,3 @@ adjustment; this is not currently implemented in the brms adapter.
 
 ---
 
-## 8. References
-
-- Bürkner, P.-C. (2017). brms: an R package for Bayesian multilevel models using Stan. *Journal of Statistical Software* **80**, 1–28.
-- Stan Development Team. (2024). *Stan Reference Manual*, v2.34. https://mc-stan.org/
-- Hoffman, M. D., & Gelman, A. (2014). The No-U-Turn Sampler. *J. Machine Learning Research* **15**, 1593–1623.
-- Vehtari, A., Gelman, A., & Gabry, J. (2017). Practical Bayesian model evaluation using leave-one-out cross-validation and WAIC. *Statistics and Computing* **27**, 1413–1432.
-- Vehtari, A., Gelman, A., Simpson, D., Carpenter, B., & Bürkner, P.-C. (2021). Rank-normalization, folding, and localization: An improved $\hat R$ for assessing convergence of MCMC. *Bayesian Analysis* **16**, 667–718.
-- Wagenmakers, E.-J., Lodewyckx, T., Kuriyal, H., & Grasman, R. (2010). Bayesian hypothesis testing for psychologists: a tutorial on the Savage–Dickey method. *Cognitive Psychology* **60**, 158–189.

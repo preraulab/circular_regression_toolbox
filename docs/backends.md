@@ -26,7 +26,7 @@ makes each subject's offset $\phi_i$ exactly von Mises given the data and
 parameters — no Laplace approximation. The exact marginal likelihood is
 
 $$
-\log p(y_i) = \log I_0(K_{\text{post},i}) - n_i \log\bigl(2\pi\,I_0(\kappa)\bigr) - \log I_0(\kappa_\phi).
+\log p(y_i) = \log I_0(K_{\text{post},i}) - n_i \log\bigl(2\pi I_0(\kappa)\bigr) - \log I_0(\kappa_\phi).
 $$
 
 **Fitter.** EM with a closed-form E-step. The M-step runs a weighted
@@ -94,7 +94,7 @@ structure.
 `Trajectory.lo` / `Trajectory.hi` are the 2.5% / 97.5% posterior quantiles.
 
 **Order selection (when `Select` is on).** Step up while
-$\Delta\text{elpd}_\text{loo} > 2\,\text{SE}(\Delta\text{elpd}_\text{loo})$.
+$\Delta\text{elpd}_\text{loo} > 2 \text{SE}(\Delta\text{elpd}_\text{loo})$.
 A chi-square LRT $p$ is reported alongside for cross-reference.
 `SelectCriterion` reads `'LOO'`.
 
