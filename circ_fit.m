@@ -1,27 +1,100 @@
 function result = circ_fit(tbl, formula, backend, opts)
-%CIRC_FIT  Unified dispatcher for circular-regression backends.
+%CIRC_FIT  Fit a circular regression and return a uniform result struct.
 %
 %   result = circ_fit(tbl, formula, backend, opts)
 %
-% Returns the common result struct (see make_circ_result) for any backend:
-%   'fitcirc_lme'  native EM von-Mises GLMM      -> circ_fit_fitcirc (MATLAB)
-%   'brms'         Stan vM-GLMM (LOO selection)  -> R worker circ_fit.R
-%   'lme4'         sin/cos projected-Gaussian    -> R worker circ_fit.R
-%   'bpnreg'       Bayesian projected-normal     -> R worker circ_fit.R
+% This is the entry point of the toolbox. It takes a tidy data table, a
+% formula in the same Wilkinson grammar `fitlme` uses, and the name of
+% one of four estimator backends, and it hands back a single struct
+% with the same field names regardless of which backend did the work.
+% That uniform output lets you swap estimators (sensitivity check,
+% backend comparison, etc.) without changing any downstream code.
 %
 % INPUTS
-%   tbl      table with response, Age, Subj_ID, optional electrode/sex
-%   formula  Wilkinson string (feature ~ ... + (1|Subj_ID)); the Age^k order
-%            in it is the MAX order when opts.Select is true, else the single
-%            order to fit. Used to seed feature/order if not in opts.
-%   backend  one of the names above (default 'fitcirc_lme')
-%   opts     struct; common fields: Select, MaxOrder, Order, x_col, feature,
-%            categorical_varnames, xcol_categorical_interactions, Resample, B,
-%            KeepFrac, eval_ages, Chains, Iter, Warmup, Seed, AdaptDelta, Band,
-%            WorkDir, RscriptPath, BrmsFallback.
+%   tbl      a MATLAB table. Required columns: the response (an angle in
+%            radians; values can sit on any 2*pi interval -- the toolbox
+%            re-centers them internally), the predictor named on the
+%            right side of the formula, and a `Subj_ID` column when the
+%            formula carries a random intercept `(1|Subj_ID)`. Optional
+%            columns can be added freely (e.g. electrode, sex, race);
+%            anything mentioned on the formula will be picked up.
+%   formula  Wilkinson string, same grammar fitlme uses. Example:
+%              'Phase ~ 1 + Age^2 + electrode + sex + (1|Subj_ID)'
+%            Notes:
+%              * `^k` denotes a polynomial in that predictor up to
+%                degree k. With `opts.Select = true`, the toolbox treats
+%                this as the MAX order to consider and chooses the best
+%                k by step-up likelihood-ratio test; otherwise it fits
+%                exactly the order written.
+%              * The random term must be `(1|<column>)` with a single
+%                grouping variable; nested or crossed random effects are
+%                not supported.
+%   backend  one of:
+%              'fitcirc_lme'  native EM von-Mises GLMM (MATLAB only;
+%                             default; recommended for most use)
+%              'brms'         Stan vM-GLMM (LOO order selection)
+%              'lme4'         frequentist sin/cos projected-Gaussian
+%              'bpnreg'       Bayesian projected-normal mixed model
+%            The R-backed backends require R + the named package on the
+%            machine; see the toolbox README's "Dependencies" section.
+%   opts     options struct (any unset fields take sensible defaults).
+%            Most useful fields:
+%              .Select      (false) true -> step-up LRT order selection
+%                                    up to MaxOrder
+%              .MaxOrder    (parsed from formula) cap for order selection
+%              .Order       (parsed from formula) fixed order when
+%                                    Select = false
+%              .feature     (parsed from formula) response column name
+%              .x_col       ('Age') base predictor name; the polynomial
+%                                    is built on this column
+%              .categorical_varnames  cellstr of factor columns
+%              .xcol_categorical_interactions  1xC logical, which of
+%                                    those factors interact with x_col
+%              .Resample    ('none' | 'cboot' | 'sub80') resampling
+%                                    bagging mode for fitcirc_lme
+%              .B           bag size for resampling
+%              .eval_ages   x-axis grid for the returned trajectory
+%              .Chains, .Iter, .Warmup, .Seed, .AdaptDelta  Stan
+%                                    sampler options (brms only)
+%              .Band        (true) include CI band in the lme4
+%                                    trajectory via bootMer
+%              .WorkDir     scratch dir for the R worker contract; if
+%                                    empty, a stable per-slice cache
+%                                    path is computed
+%              .RscriptPath ('/usr/local/bin/Rscript') override if your
+%                                    R is elsewhere
+%              .BrmsFallback (true) if the R backend errors out, warn
+%                                    and silently fall back to
+%                                    fitcirc_lme
 %
-% On R-backend failure (missing toolchain, nonzero exit, missing outputs) and
-% opts.BrmsFallback (default true), warns and falls back to fitcirc_lme.
+% OUTPUT
+%   result   the uniform circ_result struct, validated by
+%            make_circ_result. Highlights (full spec in
+%            docs/result_schema.md):
+%              .Backend, .Formula, .ResponseName, .SelectedOrder
+%              .Coefficients          table {Name, Estimate, SE, pValue}
+%              .AgeEffect.pValue      omnibus joint Wald that ALL
+%                                    age-involving coefficients are zero
+%              .GOF.R2_circ_marginal  fixed-effects-only fit quality
+%              .GOF.R2_circ_conditional fixed + subject random intercept
+%              .Trajectory            evaluation-grid table for plotting
+%
+% USAGE TIPS
+%   * For a hands-on walkthrough with a synthetic dataset where every
+%     true parameter is known, run tutorial.m (`run('tutorial.m')`).
+%   * To overlay multiple backends on the same data, fit each
+%     separately and pass them as a cell array to plot_circ_fit:
+%       r1 = circ_fit(tbl, fml, 'fitcirc_lme', opts);
+%       r2 = circ_fit(tbl, fml, 'brms',        opts);
+%       plot_circ_fit({r1, r2}, tbl);
+%
+% On R-backend failure (missing toolchain, nonzero exit, missing
+% outputs) the function warns and falls back to fitcirc_lme provided
+% opts.BrmsFallback is true (the default). Set it to false to surface
+% the underlying R error instead.
+%
+% SEE ALSO  fitcirc_lme, circ_fit_fitcirc, make_circ_result,
+%           plot_circ_fit, circ_vmrnd, tutorial.
 
 if nargin < 3 || isempty(backend), backend = 'fitcirc_lme'; end
 if nargin < 4, opts = struct(); end

@@ -21,15 +21,16 @@ addpath(genpath('circ_fit_toolbox'));
 
 % tbl needs: <response>, <predictor>, Subj_ID (and optionally electrode, sex).
 % Response is an angle in radians; the toolbox centers by circular mean
-% internally so range is irrelevant.
+% internally so the input range is irrelevant.
 result = circ_fit(tbl, 'Phase ~ 1 + Age^2 + (1|Subj_ID)', 'fitcirc_lme', ...
                   struct('Select', true, 'MaxOrder', 2));
 
-result.SelectedOrder      % polynomial order picked by LRT
-result.AgeEffect.pValue   % omnibus joint test: all age-involving terms = 0
-result.GOF.R2_circ        % angular R^2, comparable across backends
-result.Trajectory         % age × electrode × {mean, lo, hi} eval-grid table
-plot_circ_fit(result, tbl);   % triple-line at ±2π so the seam never jumps
+result.SelectedOrder              % polynomial order picked by LRT
+result.AgeEffect.pValue           % omnibus joint test: all age-involving terms = 0
+result.GOF.R2_circ_marginal       % fixed effects only
+result.GOF.R2_circ_conditional    % fixed effects + subject random intercept
+result.Trajectory                 % evaluation-grid table (Age × electrode × {mean, lo, hi})
+plot_circ_fit(result, tbl);       % triple-line at ±2π so the seam never jumps
 ```
 
 To overlay multiple backends on the same data (sensitivity / robustness check):
@@ -42,6 +43,145 @@ r4 = circ_fit(tbl, fml, 'bpnreg',      opts);
 plot_circ_fit({r1, r2, r3, r4}, tbl);
 ```
 
+## Tutorial: simulate, fit, recover
+
+For a hands-on walkthrough, run [`tutorial.m`](tutorial.m). It generates one
+synthetic dataset with known parameters and walks through every piece of
+the result against the truth that produced it. Takes a few seconds.
+
+```matlab
+addpath(genpath('/path/to/circ_fit_toolbox'));
+run(fullfile('/path/to/circ_fit_toolbox', 'tutorial.m'));
+```
+
+Inline walkthrough (same content as the script, with prose between blocks):
+
+### 1. Simulate a von Mises GLMM by hand
+
+We pretend we are running a study with 100 subjects, 8 observations each.
+The response is an angle (radians) that depends on age via a shifted
+parabola, plus a per-subject baseline offset and within-subject noise.
+
+```matlab
+clear; close all; rng(0);
+
+n_subj = 100;  n_per = 8;
+ages_subj = linspace(8, 80, n_subj)';
+Subj_ID = repelem((1:n_subj)', n_per);
+Age     = repelem(ages_subj, n_per);
+
+% True fixed effects (the population trend with age)
+beta_intercept = 0.30;
+beta_age       = -0.025;
+beta_age2      =  0.00050;
+age_centered   = Age - mean(Age);
+mu_fixed       = beta_intercept + beta_age*age_centered + beta_age2*age_centered.^2;
+
+% True concentrations
+kappa_phi = 6;     % between-subject (lower = more subject heterogeneity)
+kappa_eps = 10;    % within-subject  (higher = tighter cluster around the curve)
+
+% Draw subject offsets and per-row residual noise from von Mises
+phi_subj = circ_vmrnd(0, kappa_phi, [n_subj, 1]);
+eps_row  = circ_vmrnd(0, kappa_eps, [numel(Age), 1]);
+
+% Wrap the resulting angles to (-pi, pi]
+wrap  = @(x) ((x + pi) - 2*pi*floor((x + pi)/(2*pi))) - pi;
+Phase = wrap(mu_fixed + phi_subj(Subj_ID) + eps_row);
+
+T = table(Subj_ID, Age, Phase);
+```
+
+`circ_vmrnd(mu, kappa, sz)` is the Best–Fisher (1979) rejection sampler
+shipped with the toolbox; use `rng(seed)` first if you want a draw you can
+reproduce exactly.
+
+### 2. Fit
+
+```matlab
+result = circ_fit(T, ...
+    'Phase ~ 1 + Age + Age^2 + (1|Subj_ID)', ...
+    'fitcirc_lme', ...
+    struct('Select', true, 'MaxOrder', 3));
+```
+
+We pass `MaxOrder = 3` to test whether the step-up LRT will be fooled into
+accepting a cubic term we did not put in the truth. With `Select = true`
+the toolbox starts at intercept-only and adds polynomial terms one by one,
+stopping when the LRT no longer accepts the next term at α = 0.05.
+
+### 3. Read the result against truth
+
+```matlab
+fprintf('Selected polynomial order: %d   (truth = 2)\n', result.SelectedOrder);
+fprintf('Omnibus Age test p-value:  %.3g\n',             result.AgeEffect.pValue);
+fprintf('R2_circ marginal:          %.3f\n',             result.GOF.R2_circ_marginal);
+fprintf('R2_circ conditional:       %.3f\n',             result.GOF.R2_circ_conditional);
+fprintf('MAE_angular:               %.3f rad\n',         result.GOF.MAE_angular);
+disp(result.Coefficients);
+```
+
+Expected output (the exact numbers depend on the RNG seed):
+
+```
+Selected polynomial order: 2   (truth = 2)
+Omnibus Age test p-value:  ~0
+R2_circ marginal:          ~0.15
+R2_circ conditional:       ~0.65
+MAE_angular:               ~0.32 rad
+```
+
+The selected order matches the truth, the omnibus age test is decisively
+significant, and the gap between marginal and conditional R² tells you that
+subject heterogeneity is a large component of the response variance — which
+matches the modest `kappa_phi = 6` we set up.
+
+**Why the Age coefficients in `result.Coefficients` don't match `beta_age`
+and `beta_age2` directly.** The toolbox fits in an orthogonal-polynomial
+reparameterization for numerical conditioning (`Age_op1`, `Age_op2` instead
+of `Age`, `Age^2`). The fitted curve and the joint Age test are identical
+to what the raw `[Age, Age^2]` basis would give; the per-coefficient values
+just live in a rotated basis.
+
+### 4. Marginal vs conditional R² in plain words
+
+- **R²ₘ (marginal)** — "how well can I predict a brand-new subject from their
+  Age alone?" Fixed effects only; the subject random intercept is set to zero.
+- **R²_c (conditional)** — "how well can I predict if I have already measured
+  this subject and know their personal baseline?" Fixed effects + the per-
+  subject offset.
+- The gap `R²_c − R²ₘ` is the share of the response variance explained by the
+  subject random intercept on top of what the fixed effects (Age, etc.) explain.
+  It is the most direct quantitative report on between-subject heterogeneity.
+
+For circular models the toolbox computes both via the Nakagawa–Schielzeth
+(2013) ICC adjustment adapted to a von Mises GLMM. Each variance component
+is the circular variance `V = 1 − I₁(κ)/I₀(κ)` of the relevant concentration
+parameter (`κ_φ` for subjects, `κ` for residuals); the ICC is then
+`V_α / (V_α + V_ε)`, and `R²_c = R²ₘ + ICC·(1 − R²ₘ)`.
+
+### 5. Plot the fit
+
+```matlab
+plot_circ_fit(result, T);
+```
+
+The plotter draws the trajectory mean and CI band against the raw points.
+The angular axis is repeated above and below at ±2π so the curve never
+"jumps" at the ±π seam — a visualization trick documented in `plot_circ_fit.m`.
+
+### 6. Things to try
+
+- Change `kappa_phi` to `1` (large subject variation) or `30` (subjects very
+  alike). Watch how the gap between R²ₘ and R²_c grows or shrinks.
+- Set `beta_age2 = 0` and re-run. `SelectedOrder` should drop to 1 — the LRT
+  no longer accepts a curvature term.
+- Add a covariate: simulate a binary `sex` factor with its own effect, append
+  `+ sex` to the formula, refit, and inspect `result.Coefficients`.
+- Swap the backend to `'brms'`, `'lme4'`, or `'bpnreg'` (requires R + the
+  named package) and overlay the trajectories with
+  `plot_circ_fit({r1, r2, r3, r4}, T);`.
+
 ## The uniform result schema
 
 Every backend returns a struct validated by `make_circ_result`. Full
@@ -51,7 +191,11 @@ the highlights:
 **Required of every backend**
 - `Backend`, `Formula`, `ResponseName`, `Order`, `ThetaShift`
 - `Trajectory` — table `{Age, electrode, sex, mean, lo, hi}`, unwrapped per electrode
-- `GOF` — `{R2_circ, MAE_angular, LogLikelihood, AIC, BIC}` (AIC/BIC are NaN for the Bayesian backends)
+- `GOF` — `{R2_circ, R2_circ_marginal, R2_circ_conditional, R2_adj, MAE_angular, LogLikelihood, AIC, BIC}`.
+  `R2_circ` is an alias of `R2_circ_marginal` kept for backward compatibility.
+  `R2_circ_conditional` lifts the marginal value by the per-subject random-
+  intercept variance via the Nakagawa–Schielzeth (2013) ICC adjustment (see
+  the Tutorial section above). AIC/BIC are NaN for the Bayesian backends.
 - `AgeEffect` — `{pValue, stat, df, Method}`, a single omnibus "any age effect" test
 - `OrderTable` — per-order log-likelihood, $R^2_\text{circ}$, criterion value, and which row was selected
 - `SelectedOrder`, `SelectCriterion` (`'LRT'` | `'LRT-sincos'` | `'LOO'` | `'WAIC'`)
@@ -114,17 +258,20 @@ Detailed per-function docs in [`docs/functions.md`](docs/functions.md).
 | [`circ_center`](docs/functions.md#circ_center) | Canonical preprocessing: subtract the circular mean to place the seam in the data gap. |
 | [`circ_shift_min_var`](docs/functions.md#circ_shift_min_var) | Legacy alternative: variance-minimizing seam placement. |
 | [`circ_gof`](docs/functions.md#circ_gof) | Cross-backend goodness-of-fit: $R^2_\text{circ}$, adjusted $R^2$, mean absolute angular error. |
+| [`circ_vmrnd`](circ_vmrnd.m) | Best–Fisher 1979 rejection sampler for the von Mises distribution. Used by the tutorial and the parameter-recovery tests. |
 | [`ortho_poly_basis`](docs/functions.md#ortho_poly_basis) | R-style orthonormal polynomial basis with a transform that can be reapplied at new $x$. |
 | [`make_circ_result`](docs/functions.md#make_circ_result) | Result-struct factory + validator (single source of truth for the schema). |
 | [`read_circ_result`](docs/functions.md#read_circ_result) | Read the R worker's output contract from disk and assemble a `circ_result`. |
 | [`write_circ_contract`](docs/functions.md#write_circ_contract) | Write `data.csv` / `eval_grid.csv` / `meta.json` for the R worker. |
 | [`plot_circ_fit`](docs/functions.md#plot_circ_fit) | Plot one or more results with the triple-line trick for seam-free display. |
+| [`tutorial.m`](tutorial.m) | Self-contained simulate-and-recover walkthrough; see the [Tutorial section](#tutorial-simulate-fit-recover). |
 
 ## Repository layout
 
 ```
 circ_fit_toolbox/
 ├── README.md                  (this file)
+├── tutorial.m                 (runnable simulate-and-recover walkthrough)
 ├── docs/
 │   ├── functions.md           (per-function reference)
 │   ├── backends.md            (the four backends side by side)
@@ -137,6 +284,7 @@ circ_fit_toolbox/
 ├── circ_center.m              (canonical preprocessing)
 ├── circ_shift_min_var.m       (legacy variance-minimizing shift)
 ├── circ_gof.m                 (R^2_circ + MAE)
+├── circ_vmrnd.m               (von Mises rejection sampler; used by tests + tutorial)
 ├── ortho_poly_basis.m         (R-style orthonormal polynomial basis)
 ├── make_circ_result.m         (schema factory)
 ├── read_circ_result.m         (R worker output → MATLAB result struct)
