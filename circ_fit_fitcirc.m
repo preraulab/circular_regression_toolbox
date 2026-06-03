@@ -14,11 +14,27 @@ function result = circ_fit_fitcirc(tbl, opts)
 %   .xcol_categorical_interactions, .Select, .MaxOrder, .Order,
 %   .Resample ('none'|'cboot'|'sub80'; 'legacy' aliases to 'none'),
 %   .B, .KeepFrac, .eval_ages (default 7:80)
+%   .continuous_covariates (cellstr, default {}) extra continuous
+%       predictors entered as main effects, e.g. {'bmi','ahi'}. Rows with
+%       a missing value in any of them are dropped; they are held at their
+%       cohort means when the trajectory is drawn. Categorical covariates
+%       (e.g. race) go in .categorical_varnames instead.
+%   .KappaPhiPrior (default 'halfcauchy'), .KappaPhiPriorScale (default 8)
+%       passed straight to fitcirc_lme; these set the weakly-informative
+%       prior on the subject-spread concentration kappa_phi. The same
+%       prior is used at every polynomial order, so the order-selection
+%       likelihood-ratio test compares like with like.
 
 x_col   = getopt(opts, 'x_col', 'Age');
 feature = getopt(opts, 'feature', '');
 cats    = getopt(opts, 'categorical_varnames', {});
 intx    = getopt(opts, 'xcol_categorical_interactions', []);
+% Continuous adjustment covariates (e.g. {'bmi','ahi'}): entered as
+% main-effect terms alongside the x_col polynomial. Held at their cohort
+% means when drawing the trajectory; the omnibus age test and GOF use the
+% real per-row values.
+covs    = getopt(opts, 'continuous_covariates', {});
+if ischar(covs) || isstring(covs), covs = cellstr(covs); end
 resamp  = normalize_resample(getopt(opts, 'Resample', 'none'));
 B       = getopt(opts, 'B', 60);
 keep_fr = getopt(opts, 'KeepFrac', 0.8);
@@ -26,9 +42,16 @@ do_sel  = getopt(opts, 'Select', false);
 max_ord = getopt(opts, 'MaxOrder', 2);
 fix_ord = getopt(opts, 'Order', max_ord);
 eval_ages = getopt(opts, 'eval_ages', (7:80)'); eval_ages = eval_ages(:);
+% Prior on the subject-spread concentration kappa_phi, passed through to
+% fitcirc_lme. Defaults match fitcirc_lme's own defaults.
+kphi_prior = getopt(opts, 'KappaPhiPrior', 'halfcauchy');
+kphi_scale = getopt(opts, 'KappaPhiPriorScale', 8);
 
 % --- Restrict to used columns and drop NaN rows ---
-keep_cols = unique([{x_col, feature, 'Subj_ID'}, cats(:)'], 'stable');
+% covs are included here so they survive the NaN-drop and reach the
+% design; rows missing any predictor (e.g. the few NaN AHI values) are
+% dropped so the design and response stay row-aligned.
+keep_cols = unique([{x_col, feature, 'Subj_ID'}, cats(:)', covs(:)'], 'stable');
 keep_cols = keep_cols(ismember(keep_cols, tbl.Properties.VariableNames));
 sub = tbl(:, keep_cols);
 good = true(height(sub),1);
@@ -38,6 +61,16 @@ for ii = 1:numel(keep_cols)
 end
 sub = sub(good, :);
 n   = height(sub);
+
+% Reference value for each continuous covariate: its cohort mean. The
+% trajectory is drawn holding the covariates here, so the curve reads as
+% "x_col effect at the mean BMI/AHI/..." rather than at a covariate of 0.
+cov_means = struct();
+for ii = 1:numel(covs)
+    if ismember(covs{ii}, sub.Properties.VariableNames)
+        cov_means.(covs{ii}) = mean(sub.(covs{ii}), 'omitnan');
+    end
+end
 
 has_elec = ismember('electrode', sub.Properties.VariableNames) && numel(unique(sub.electrode)) >= 2;
 has_sex  = ismember('sex',       sub.Properties.VariableNames) && numel(unique(sub.sex))       >= 2;
@@ -106,15 +139,23 @@ R2s   = nan(n_ord,1);
 % The "max-LL of {cold, warm}" rule is what we actually want for the
 % LRT to be principled: under the null, both inits converge to the
 % same MLE; under the alternative, one of them finds it.
-warm = struct('Beta', [], 'Names', {{}});
+warm = struct('Beta', [], 'Names', {{}}, 'Kappa', [], 'KappaPhi', []);
 for i = 1:n_ord
-    fml = [build_ortho_formula(orders(i), x_col, feature, cats, intx) ' + (1|Subj_ID)'];
+    fml = [build_ortho_formula(orders(i), x_col, feature, cats, intx, covs) ' + (1|Subj_ID)'];
     m_cold = fit_one_order(sub, fml, theta_shift, resamp, B, keep_fr, ...
-                           struct('Beta',[],'Names',{{}}));
+                           struct('Beta',[],'Names',{{}}), kphi_prior, kphi_scale);
     if i == 1 || isempty(warm.Beta)
         m = m_cold;
     else
-        m_warm = fit_one_order(sub, fml, theta_shift, resamp, B, keep_fr, warm);
+        % Warm-start order i from order i-1's full converged state: Beta in
+        % the expanded basis (the new higher-order columns start at 0), plus
+        % Kappa and KappaPhi. The warm fit therefore begins essentially at
+        % the lower order's solution, and because the EM is monotone
+        % (fitcirc_lme's ascent guard) it can only climb from there -- so the
+        % higher order's log-likelihood will not fall below the lower
+        % order's. Keep whichever of {cold, warm} reaches the higher LL.
+        m_warm = fit_one_order(sub, fml, theta_shift, resamp, B, keep_fr, warm, ...
+                               kphi_prior, kphi_scale);
         if m_warm.LogLikelihood > m_cold.LogLikelihood
             m = m_warm;
         else
@@ -126,11 +167,23 @@ for i = 1:n_ord
     npars(i) = m.NumCoefficients;
     yhat_pop = wrap_pi(m.X_design * m.Beta);
     R2s(i)   = circ_gof_R2(sub.(feature), yhat_pop);
-    % Seed the next order from this order's Beta (only Beta -- carrying
-    % Kappa/KappaPhi forward poisoned the EM in clusters with weak
-    % low-order signal).
-    warm.Beta  = m.Beta;
-    warm.Names = m.Coefficients.Name;
+    % Defensive guard: with a monotone EM warm-started from the previous
+    % order, LLs(i) >= LLs(i-1) should hold. If it is ever violated the
+    % higher-order fit failed to converge; surface it loudly instead of
+    % letting the LRT below read the drop as "this order adds nothing"
+    % (which would silently drop a real effect).
+    if i > 1 && LLs(i) < LLs(i-1) - 1e-6
+        warning('circ_fit_fitcirc:nonMonotoneLL', ...
+            ['Order %d log-likelihood (%.4f) fell below order %d (%.4f); ' ...
+             'the EM did not converge. Consider a larger MaxIter.'], ...
+            orders(i), LLs(i), orders(i-1), LLs(i-1));
+    end
+    % Seed the next order from this order's full converged state (Beta,
+    % Kappa, KappaPhi), so the next warm fit starts at this solution.
+    warm.Beta     = m.Beta;
+    warm.Names    = m.Coefficients.Name;
+    warm.Kappa    = m.Kappa;
+    warm.KappaPhi = m.KappaPhi;
 end
 
 % --- LRT order selection (reuse get_LLR with residual-df-style df) ---
@@ -140,17 +193,16 @@ end
 % selector (matched to the lme/blme path in get_best_iterative_order.m)
 % and what the paper's Methods will report.
 %
-% NB: when the EM's marginal LL is non-monotone in order (a known
-% boundary issue for the random-effects concentration kappa_phi -- see
-% Stram & Lee 1994 on testing variance components at the boundary), the
-% LRT will conservatively reject the higher order even when the actual
-% angular fit improves substantially. Symptom: AgeEffect.pValue = NaN
-% for clusters where R2_circ visibly jumps with order but the marginal
-% LL drops. The principled fix is to regularize kappa_phi away from the
-% upper boundary (cap or half-Cauchy prior on sigma_phi); this is
-% recorded as a follow-up and is not done here. The OrderTable records
-% R2_circ alongside LL so the diagnostic is visible to downstream
-% audits.
+% This relies on the per-order marginal log-likelihoods being finite and
+% on a common footing. The subject-spread concentration kappa_phi can sit
+% at a boundary (kappa_phi -> infinity when the fixed effects already
+% capture the trend), where an unregularized estimate would send the
+% log-likelihood to NaN and corrupt the comparison -- the classic
+% variance-component-at-a-boundary problem (Stram & Lee 1994). fitcirc_lme
+% applies the same weakly-informative kappa_phi prior at every order (see
+% KappaPhiPrior / KappaPhiPriorScale above), which keeps each
+% log-likelihood finite and smooth so the LRT compares like with like.
+% The OrderTable still records R2_circ alongside LL as a cross-check.
 crit = nan(n_ord, 1);
 sel  = false(n_ord, 1);
 chosen_i = 1;
@@ -175,13 +227,52 @@ OrderTable = table(orders(:), npars(:), LLs(:), R2s(:), crit(:), sel(:), ...
 % orthogonal polynomial basis used for fitting; the Traj.Age column
 % itself stays raw.
 names = chosen.Coefficients.Name;
-Traj  = build_trajectory(names, chosen.Beta, chosen.cov_b, x_col, eval_ages, has_elec, has_sex, ortho_info);
+Traj  = build_trajectory(names, chosen.Beta, chosen.cov_b, x_col, eval_ages, has_elec, has_sex, ortho_info, cov_means);
 
-% --- GOF (population/marginal, comparable to the R backends) ---
+% --- GOF (marginal + conditional R2_circ, comparable to R backends) ---
+% R2_circ_marginal is the fixed-effect-only variance fraction on the
+% angle scale, computed by circ_gof from the population predictions
+% yhat_pop = X*Beta. Comparable across backends.
+%
+% R2_circ_conditional lifts R2_circ_marginal by the per-subject random
+% phase intercept's contribution using the Nakagawa-Schielzeth (2013)
+% closed-form ICC adjustment, adapted to a von Mises GLMM. Each
+% variance component is the circular variance V = 1 - I_1(kappa)/I_0(kappa)
+% of the corresponding von Mises concentration parameter:
+%     V_alpha = 1 - I_1(KappaPhi) / I_0(KappaPhi)   (subject phase RE)
+%     V_eps   = 1 - I_1(Kappa)    / I_0(Kappa)      (residual)
+%     ICC     = V_alpha / (V_alpha + V_eps)
+%     R2_c    = R2_m + ICC * (1 - R2_m)
+% KappaPhi -> Inf is the EM's signal that the data does not support a
+% per-subject random intercept (the angular feature carries no
+% persistent personal baseline -- e.g. mode tilt in some clusters).
+% In that limit V_alpha = 0, ICC = 0, R2_c = R2_m, which is the
+% correct conservative reporting.
 yhat_pop = wrap_pi(chosen.X_design * chosen.Beta);
 g        = circ_gof(sub.(feature), yhat_pop, chosen.NumCoefficients);
-GOF      = struct('R2_circ', g.R2_circ, 'R2_adj', g.R2_adj, 'MAE_angular', g.MAE_angular, ...
-                  'LogLikelihood', chosen.LogLikelihood, 'AIC', chosen.AIC, 'BIC', chosen.BIC);
+R2_marg  = g.R2_circ;
+R2_cond  = R2_marg;
+if isfinite(R2_marg) && isfinite(chosen.Kappa) && chosen.Kappa > 0
+    if isfinite(chosen.KappaPhi) && chosen.KappaPhi > 0
+        V_alpha = 1 - besseli(1, chosen.KappaPhi) / besseli(0, chosen.KappaPhi);
+    else
+        V_alpha = 0;
+    end
+    V_eps = 1 - besseli(1, chosen.Kappa) / besseli(0, chosen.Kappa);
+    if (V_alpha + V_eps) > 0
+        icc     = V_alpha / (V_alpha + V_eps);
+        R2_cond = R2_marg + icc * (1 - R2_marg);
+    end
+end
+GOF = struct( ...
+    'R2_circ',             R2_marg, ...      % alias of R2_circ_marginal (back-compat)
+    'R2_circ_marginal',    R2_marg, ...
+    'R2_circ_conditional', R2_cond, ...
+    'R2_adj',              g.R2_adj, ...
+    'MAE_angular',         g.MAE_angular, ...
+    'LogLikelihood',       chosen.LogLikelihood, ...
+    'AIC',                 chosen.AIC, ...
+    'BIC',                 chosen.BIC);
 
 % --- Uniform age-effect test: joint Wald on the x_col block ---
 % Omnibus age effect: joint Wald that ALL age terms (polynomial main
@@ -231,13 +322,17 @@ end
 
 % ===================== local helpers =====================
 
-function m = fit_one_order(sub, fml, theta_shift, resamp, B, keep_fr, warm)
+function m = fit_one_order(sub, fml, theta_shift, resamp, B, keep_fr, warm, kphi_prior, kphi_scale)
 % Fit one order with the given circular-mean shift; bag over subject
 % resamples when resamp is 'cboot' / 'sub80'. `warm` (optional) carries
 % the previous order's converged Beta/Names/Kappa/KappaPhi for warm-
-% starting the EM (see the order loop in the caller).
+% starting the EM (see the order loop in the caller). kphi_prior /
+% kphi_scale set the kappa_phi prior and are forwarded to fitcirc_lme.
 if nargin < 7 || isempty(warm), warm = struct('Beta',[],'Names',{{}},'Kappa',[],'KappaPhi',[]); end
-nv = {'ThetaShift', theta_shift};
+if nargin < 8 || isempty(kphi_prior), kphi_prior = 'halfcauchy'; end
+if nargin < 9 || isempty(kphi_scale), kphi_scale = 8; end
+kphi_nv = {'KappaPhiPrior', kphi_prior, 'KappaPhiPriorScale', kphi_scale};
+nv = [{'ThetaShift', theta_shift}, kphi_nv];
 if ~isempty(warm.Beta) && ~isempty(warm.Names)
     nv = [nv, {'InitBeta', warm.Beta, 'InitBetaNames', warm.Names}];
 end
@@ -263,7 +358,7 @@ for b = 1:B
         Tb   = sub(ismember(sub.Subj_ID, pick), :);
     end
     try
-        mb = fitcirc_lme(Tb, fml, 'ThetaShift', theta_shift);
+        mb = fitcirc_lme(Tb, fml, 'ThetaShift', theta_shift, kphi_nv{:});
         if numel(mb.Beta) == P, Bm(:,b) = mb.Beta; ok(b) = true; end
     catch
     end
@@ -296,12 +391,15 @@ Tout = vertcat(parts{:});
 end
 
 
-function Traj = build_trajectory(names, beta, cov_b, x_col, ages, has_elec, has_sex, ortho_info)
+function Traj = build_trajectory(names, beta, cov_b, x_col, ages, has_elec, has_sex, ortho_info, cov_means)
 % Population trajectory + 95% CI on the eval grid, per electrode level.
 % ortho_info carries the orthogonal polynomial basis transformation used
 % during fitting; the design at eval_ages is built in the SAME basis so
 % predictions are valid. Traj.Age stays raw (degrees-of-time axis).
+% cov_means holds each continuous covariate at its cohort mean so the
+% drawn curve is the x_col effect at average covariate values.
 if nargin < 8, ortho_info = []; end
+if nargin < 9, cov_means = struct(); end
 % Evaluate the orthogonal basis at eval_ages once. P_eval(:,j) is the
 % j-th orthogonal-polynomial column at each eval age. Empty ortho_info
 % means caller did not standardize the design -- shouldn't happen in
@@ -317,6 +415,9 @@ for e = 1:numel(elec_levels)
     cv = struct();
     if has_elec, cv.electrode = elec_levels(e); end
     if has_sex,  cv.sex = 0; end
+    % Hold each continuous covariate at its cohort mean.
+    fn = fieldnames(cov_means);
+    for c = 1:numel(fn), cv.(fn{c}) = cov_means.(fn{c}); end
     X  = design_from_names(names, x_col, P_eval, cv);
     eta = X * beta;                                   % continuous linear predictor
     se  = sqrt(max(diag(X * cov_b * X'), 0));
@@ -331,18 +432,24 @@ Traj = vertcat(rows{:});
 end
 
 
-function fml = build_ortho_formula(order, x_col, feature, cats, intx)
+function fml = build_ortho_formula(order, x_col, feature, cats, intx, covs)
 % Wilkinson formula in the orthogonal-polynomial basis. Uses explicit
 % column names `<x_col>_op1`, `<x_col>_op2`, ..., `<x_col>_opK` (added to
 % the table by circ_fit_fitcirc before this call) instead of the
 % polynomial syntax `Age^k` which fitlme would expand to a correlated
-% raw-power basis.
+% raw-power basis. cats are categorical main effects; covs are continuous
+% adjustment covariates; both enter as main effects (covs are not
+% interacted with x_col).
+if nargin < 6, covs = {}; end
 parts = {'1'};
 for j = 1:order
     parts{end+1} = sprintf('%s_op%d', x_col, j); %#ok<AGROW>
 end
 for k = 1:numel(cats)
     parts{end+1} = cats{k}; %#ok<AGROW>
+end
+for k = 1:numel(covs)
+    parts{end+1} = covs{k}; %#ok<AGROW>
 end
 if ~isempty(intx)
     if islogical(intx), mask = intx; else, mask = logical(intx); end
@@ -387,7 +494,14 @@ for j = 1:p
         elseif isfield(catvals, ff)
             col = col .* (catvals.(ff) * ones(n,1));
         else
-            error('circ_fit_fitcirc:UnknownFactor', 'Factor "%s" not in catvals or basis.', ff);
+            % Factor not supplied in catvals: default to 0. This is the
+            % path for categorical level dummies (e.g. race_1), so the
+            % trajectory is drawn at the reference level. Continuous
+            % covariates are supplied through catvals (held at their
+            % cohort means), so they do not reach this branch. Either way
+            % this affects only the drawn curve, not the age-block omnibus
+            % statistic, which is computed from beta and cov_b directly.
+            col = col .* 0;
         end
     end
     X(:,j) = col;

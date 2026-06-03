@@ -77,7 +77,7 @@ chooser:
 
 | Backend         | Model                                 | Order selection                | Random effects               | Uncertainty           | Wraps full revolution? | Dependencies                |
 |-----------------|---------------------------------------|--------------------------------|------------------------------|-----------------------|------------------------|-----------------------------|
-| **fitcirc_lme** | von Mises GLMM, exact EM              | LRT                            | Single `(1|group)` intercept | Cluster-robust Wald (Liang–Zeger) | No                     | MATLAB only                 |
+| **fitcirc_lme** | von Mises GLMM, exact EM              | LRT                            | Single `(1|group)` intercept | Cluster-robust Wald (sandwich) | No                     | MATLAB only                 |
 | **brms**        | Bayesian vM-GLMM, `tan_half` link     | LOO (`elpd_diff > 2·se_diff`); LRT reported alongside | brms-side  | Posterior (Stan)      | No                     | R + `brms` + `loo` + Stan toolchain |
 | **lme4**        | Sin/cos parallel LMEs                 | Combined sin+cos LRT           | lme4-side `(1|Subj_ID)`      | Wald + optional `bootMer` band | Yes                    | R + `lme4`                  |
 | **bpnreg**      | Bayesian projected-normal mixed model | WAIC                           | bpnreg-side                  | Posterior              | Yes                    | R + `bpnreg`                |
@@ -253,20 +253,11 @@ The full per-test inventory is in [`docs/functions.md`](docs/functions.md#tests)
 These are documented behaviors that have not been fixed, and that downstream
 callers should be aware of:
 
-- **EM marginal-LL non-monotonicity at the random-effects concentration
-  boundary.** When `fitcirc_lme`'s `KappaPhi` posterior collapses near 0, the
-  unconstrained M-step drives `KappaPhi` toward infinity. The fitter applies
-  a default cap (`KappaPhiMax = 8`) to prevent boundary blow-up, but the
-  marginal LL can still be non-monotone in polynomial order in pathological
-  clusters. The symptom is `AgeEffect.pValue = NaN` together with a visible
-  $R^2_\text{circ}$ jump in the order table. `circ_fit_fitcirc` reports
-  $R^2_\text{circ}$ alongside log-likelihood in the order table so this is
-  visible to downstream audits. See the inline note in `circ_fit_fitcirc.m`
-  citing Stram & Lee (1994).
 - **Cluster-robust sandwich SEs underperform with very small clusters.** The
-  Liang–Zeger sandwich used in `fitcirc_lme` is correct asymptotically but
-  can under-cover when each subject contributes only two observations.
-  Documented in the source header.
+  cluster-robust ("sandwich") SEs in `fitcirc_lme` are correct asymptotically
+  but can under-cover when each subject contributes only two observations.
+  For primary inference with very small clusters, prefer the resample-based
+  options in `circ_fit_fitcirc`.
 - **brms chains forced sequential.** When `Rscript` is launched from
   MATLAB's `system()`, parallel chain workers fail to initialize rstan, so
   `circ_fit_brms_impl.R` forces `cores = 1`. Slower than parallel sampling,

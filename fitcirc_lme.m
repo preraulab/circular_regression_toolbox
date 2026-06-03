@@ -1,72 +1,125 @@
 classdef fitcirc_lme
 %FITCIRC_LME  Mixed-effects regression for circular data, von Mises GLMM.
 %
-% True circular GLMM with a circular prior on the random subject phase:
+% The outcome here is an ANGLE (for example the phase of an oscillation),
+% so ordinary linear regression does not apply: an angle near +pi and one
+% near -pi are close together, not far apart. Each observation belongs to
+% a subject, and every subject is allowed its own baseline angular offset
+% (a random intercept on the circle). The model is
 %
-%   y_ij | beta, phi_i, kappa  ~  vonMises( X_ij*beta + phi_i,  kappa )
-%   phi_i                      ~  vonMises( 0,  kappa_phi )
+%   y_ij | beta, phi_i  ~  vonMises( X_ij*beta + phi_i,  kappa )
+%   phi_i               ~  vonMises( 0,  kappa_phi )
 %
-% Both the response noise and the random subject phase are von Mises.
-% This makes the conditional posterior of phi_i CLOSED FORM (also von
-% Mises) rather than requiring a Laplace approximation, and bounds the
-% random-effect concentration on the natural circular scale instead of
-% letting an unwrapped-Normal prior run sigma_phi to infinity.
+% Reading the symbols:
+%   y_ij       angle for observation j of subject i (radians)
+%   X_ij*beta  the fixed-effect prediction -- the population-level trend
+%   phi_i      subject i's own angular offset -- the random intercept
+%   kappa      how tightly observations cluster around their prediction
+%              (large kappa = little noise). This is the von Mises
+%              "concentration", the circular cousin of 1/variance.
+%   kappa_phi  how tightly the subject offsets cluster around 0 (large
+%              kappa_phi = subjects are alike). It plays the role that the
+%              random-intercept variance plays in an ordinary mixed model,
+%              but measured on the circle.
+%
+% The von Mises distribution is the circular analogue of the Normal. A
+% useful one-number summary of any cluster of angles is the mean
+% resultant length
+%   A(k) = I_1(k) / I_0(k),   between 0 and 1
+% (I_0, I_1 are modified Bessel functions). It is the average of
+% cos(angle - mean direction): near 0 when angles are spread all around
+% the circle, near 1 when they are tightly bunched.
+%
+% Why both pieces are von Mises: it keeps the per-subject math exact.
+% Given the data and the current parameters, each offset phi_i again
+% follows a von Mises distribution that we can write down directly -- no
+% Gaussian (Laplace) approximation, and no need to "unwrap" angles onto
+% the real line.
 %
 % --------------------------------------------------------------------
-% MATH AT EACH STAGE
+% HOW IT IS FIT (EM algorithm)
 % --------------------------------------------------------------------
-% E-step (per subject i, fixed beta, kappa, kappa_phi):
-%   alpha_ij = y_ij - X_ij*beta            (residual of fixed effects)
-%   S_i = sum_j sin(alpha_ij)
-%   C_i = sum_j cos(alpha_ij)
+% The fit alternates two steps until the log-likelihood stops changing.
 %
-% Combining likelihood ~ vonMises( mu_i = atan2(S_i, C_i), kappa*R_i )
-% with prior vonMises(0, kappa_phi) gives an exact von-Mises posterior
-% phi_i | y_i ~ vonMises( mu_post_i, K_post_i ) where:
-%   K_post_i * cos(mu_post_i) = kappa * C_i + kappa_phi
-%   K_post_i * sin(mu_post_i) = kappa * S_i
-%   K_post_i  = sqrt( (kappa C_i + kappa_phi)^2 + (kappa S_i)^2 )
-%   mu_post_i = atan2( kappa S_i,  kappa C_i + kappa_phi )
+% E-STEP -- summarize each subject's offset.
+%   For subject i, remove the fixed-effect prediction and add up the
+%   leftover angles as unit vectors:
+%     alpha_ij = y_ij - X_ij*beta
+%     C_i = sum_j cos(alpha_ij),   S_i = sum_j sin(alpha_ij)
+%   Combining subject i's data with the prior vonMises(0, kappa_phi)
+%   yields the offset's distribution -- again von Mises -- with
+%     K_post_i  = sqrt( (kappa*C_i + kappa_phi)^2 + (kappa*S_i)^2 )
+%     mu_post_i = atan2( kappa*S_i,  kappa*C_i + kappa_phi )
+%   mu_post_i is the best estimate of subject i's offset, and
+%     rho_i = A(K_post_i)
+%   says how sure we are of it (near 1 = very sure). rho_i is all the
+%   M-step needs from this step.
 %
-% Posterior moments:
-%   phi_i_hat   := mu_post_i               (mean direction)
-%   rho_i       := A(K_post_i) = I_1/I_0   (mean resultant length)
-%   E[cos(phi_i - mu_post_i)] = rho_i      (used by the M-step)
-%   E[exp(i*phi_i)]           = rho_i * exp(i*mu_post_i)
+% M-STEP -- update the parameters, carrying the offset uncertainty
+% through rho_i.
+%   1) beta (the population trend). Solve the circular regression
+%        sum_ij rho_i * X_ij' * sin(y_ij - X_ij*beta - mu_post_i) = 0
+%      by iteratively reweighted least squares. Each observation is
+%      weighted by its subject's rho_i, so subjects whose offset we are
+%      sure of count fully and uncertain ones count less.
+%   2) kappa (response concentration). Form the residual angles
+%      y_ij - X_ij*beta - mu_post_i, average their unit vectors with the
+%      same rho_i weights, and turn that mean resultant length into a
+%      concentration (local_kappa_from_R). Weighting by rho_i accounts for
+%      the offsets being known only approximately.
+%   3) kappa_phi (how alike the subjects are). See the next block.
 %
-% No Newton iteration, no Laplace approximation, no unwrapped phi.
+% --------------------------------------------------------------------
+% ESTIMATING kappa_phi, AND WHY IT NEEDS A PRIOR
+% --------------------------------------------------------------------
+% With the offset prior centered at 0, the natural estimate solves
+%   A(kappa_phi) = R_phi,   R_phi = mean_i rho_i * cos(mu_post_i),
+% i.e. it measures how tightly the estimated offsets bunch around 0. It is
+% found by maximizing the exact one-dimensional objective
+%   kappa_phi = argmax_k  n_subj*( R_phi*k - log I_0(k) ) + log prior(k).
 %
-% M-step:
-%   1) beta:      weighted IRLS on the circular score with offset
-%        beta solves   sum_ij rho_i * X_ij' * sin(y_ij - X_ij*beta - mu_post_i) = 0
-%      i.e. each observation gets weight rho_i (its subject's posterior
-%      mean resultant length).  When the posterior is very concentrated
-%      (rho_i ~ 1), the obs counts fully; when the posterior is diffuse,
-%      it down-weights itself.
+% The "log prior(k)" term is there for a specific failure mode. When the
+% fixed effects already capture the trend well, every subject's estimated
+% offset sits almost exactly at 0, so R_phi -> 1. The plain estimate of
+% kappa_phi then runs off toward infinity (equivalently the subject-to-
+% subject spread sigma_phi -> 0). Numerically that overflows the Bessel
+% functions and sends the log-likelihood to NaN, which breaks comparison
+% across nested models. A gentle, weakly-informative prior on kappa_phi
+% keeps the estimate finite and the log-likelihood smooth, so likelihood-
+% ratio tests and AIC across models stay well behaved. When the data
+% genuinely pin kappa_phi down the prior barely moves it; it only tames
+% the runaway case. See the KappaPhiPrior / KappaPhiPriorScale options.
+% (When R_phi <= 0 the estimate is kappa_phi = 0: the offsets do not bunch
+% around 0 at all, so the prior is effectively uniform on the circle.)
 %
-%   2) kappa:     Banerjee MLE on residuals deflated by rho_i.
-%      For phi_i ~ vonMises(mu_post_i, K_i), the characteristic function
-%      gives  E[cos(epsilon_ij)] = cos(e_ij) * rho_i  where
-%      epsilon_ij = e_ij - (phi_i - mu_post_i) is the true residual.
-%      So multiply per-obs sin/cos contributions by rho_i before
-%      computing the resultant length.
+% A note on which boundary. Gelman (2006) recommends a half-t / half-
+% Cauchy prior on a group-level standard deviation for the case of too FEW
+% groups, where the spread can come out implausibly LARGE; that prior has
+% its mode at zero spread. Here the troublesome boundary is the opposite
+% one -- zero spread, kappa_phi -> infinity -- so the same weakly-
+% informative idea is placed on kappa_phi itself, where it pushes back
+% against the runaway.
 %
-%   3) kappa_phi: constrained MLE for the prior concentration.
-%      The prior mean direction is fixed at 0, so the score equation is
-%        A(kappa_phi) = max(0, (1/n_subj) * sum_i rho_i * cos(mu_post_i))
-%      i.e. the projection of the posterior phase cluster onto the prior
-%      mean direction.  When that average is non-positive (subjects'
-%      posterior phases scatter away from 0), kappa_phi = 0 and the
-%      prior becomes uniform on the circle.
-%
-% Marginal log-likelihood (EXACT, no Laplace correction):
+% --------------------------------------------------------------------
+% LOG-LIKELIHOOD
+% --------------------------------------------------------------------
+% Because each subject's offset can be integrated out exactly, the
+% marginal log-likelihood is available in closed form:
 %   log p(y_i) = log I_0(K_post_i)
 %              - n_i * log( 2*pi * I_0(kappa) )
-%              -      log(        I_0(kappa_phi) )
-%   (the integral over phi_i is closed form, not a Laplace approximation)
+%              -        log( I_0(kappa_phi) )
+% summed over subjects, with n_i the number of observations for subject i.
+% This (unpenalized) value is what LogLikelihood reports and what model
+% comparisons should use. The EM stops when its relative change drops
+% below Tol, or after MaxIter iterations.
 %
-% Convergence: monitor the marginal log-likelihood; stop when relative
-% change is below tol or after MaxIter EM steps.
+% The M-step updates are only approximate maximizers, so a full step can
+% occasionally overshoot and lower the likelihood. To prevent that, each
+% step is backtracked (step-halved) until it does not decrease the
+% objective. The EM is therefore monotone: the log-likelihood never goes
+% down from one iteration to the next, which also guarantees that a larger
+% model warm-started from a smaller nested one cannot end up with a lower
+% likelihood -- the property model-selection (LRT/AIC) relies on.
 %
 % --------------------------------------------------------------------
 % USAGE
@@ -75,13 +128,25 @@ classdef fitcirc_lme
 %   mdl = fitcirc_lme(tbl, formula, Name, Value, ...)
 %
 % NAME-VALUE OPTIONS
-%   'MaxIter'      (default 100)   max EM iterations
+%   'MaxIter'      (default 500)   max EM iterations
 %   'Tol'          (default 1e-5)  relative LL tolerance for convergence
 %   'Verbose'      (default false) print per-iteration progress
 %   'InitKappa'    (default 4)     starting kappa
 %   'InitKappaPhi' (default 4)     starting kappa_phi (prior concentration)
 %   'InitSigma'    (deprecated)    if given, converted to InitKappaPhi via
 %                                  A(kappa_phi) = exp(-sigma^2/2)
+%   'KappaPhiPrior' (default 'halfcauchy') weakly-informative prior on the
+%                                  subject-spread concentration kappa_phi,
+%                                  which keeps its estimate finite (see the
+%                                  kappa_phi notes above). One of
+%                                  'halfcauchy', 'halfnormal', or 'none'.
+%   'KappaPhiPriorScale' (default 8) scale of that prior, on the kappa_phi
+%                                  axis. Larger = weaker pull = more
+%                                  subject-to-subject spread allowed.
+%   'KappaPhiMax'  (default Inf)   optional hard upper limit on kappa_phi,
+%                                  applied after the prior. Inf leaves the
+%                                  prior in charge; a finite value clamps
+%                                  kappa_phi at that ceiling.
 %
 % OUTPUT FIELDS
 %   Formula, ResponseName, GroupingVar
@@ -95,6 +160,9 @@ classdef fitcirc_lme
 %   PhiRho                - n_subj-by-1 posterior mean resultant lengths
 %   PhiKappaPost          - n_subj-by-1 posterior concentrations
 %   LogLikelihood         - exact marginal LL at the converged params
+%                           (UNpenalized; comparable across nested models)
+%   LogPrior              - log kappa_phi prior at the converged params;
+%                           penalized objective = LogLikelihood + LogPrior
 %   AIC, BIC              - based on (p + 2) parameters
 %   NumObservations, NumSubjects, NumCoefficients
 %   ConvergedIn, ConvergenceHistory
@@ -106,40 +174,37 @@ classdef fitcirc_lme
 %   coefTest(R)           - Wald joint test on a contrast of beta
 %
 % STANDARD ERRORS
-% Standard errors on beta come from the cluster-robust sandwich
-% (Liang & Zeger 1986) with subject as the cluster, rescaled by the
-% small-sample factor m/(m-1) * (n-1)/(n-p).  Inference uses the
-% t-distribution with (n_subjects - 1) d.o.f.  As with any plug-in EM
-% sandwich, the n_j=2 design can under-cover; the cluster-robust vM
-% MLE without random-effect machinery is recommended for primary
-% inference.
+% Standard errors on beta use a cluster-robust ("sandwich") estimator with
+% each subject treated as one cluster, so they remain valid even though a
+% subject's repeated observations are correlated. The sandwich is built
+% from the same rho-weighted circular score the M-step solves, and its
+% "bread" is the expected (Fisher) information
+%   kappa * A(kappa) * sum_ij rho_i * X_ij' * X_ij,
+% which is always positive-definite. A small-sample correction factor
+%   m/(m-1) * (n-1)/(n-p)
+% is applied (m = number of subjects, n = number of observations,
+% p = number of fixed effects), and tests use a t-distribution with
+% (m - 1) degrees of freedom. With only a couple of observations per
+% subject these SEs can be mildly optimistic; for primary inference a
+% cluster-robust von Mises fit without the random intercept is a
+% conservative alternative.
 %
 % LIMITATIONS
 %   - Single (1|group) random-intercept term only.
 %   - Cluster-robust SEs need a reasonable number of subjects.
 %
 % REFERENCES
-%   Banerjee, A., Dhillon, I.S., Ghosh, J. & Sra, S. (2005).
-%     Clustering on the unit hypersphere using von Mises-Fisher
-%     distributions. Journal of Machine Learning Research 6:1345-1382.
-%     https://www.jmlr.org/papers/v6/banerjee05a.html
-%     Source of the large-N kappa approximation kappa_hat = R(d - R^2)/(1 - R^2)
-%     used in local_kappa_from_R below.
-%   Best, D.J. & Fisher, N.I. (1981). The bias of the maximum likelihood
-%     estimators of the von Mises-Fisher concentration parameters.
-%     Communications in Statistics - Simulation and Computation B10(5):493-502.
-%     Source of the small-sample (N < ~16) bias correction in the local
-%     kappa branch.
-%   Liang, K.-Y. & Zeger, S.L. (1986). Longitudinal data analysis using
-%     generalized linear models. Biometrika 73(1):13-22.
-%     https://doi.org/10.1093/biomet/73.1.13
-%     Source of the cluster-robust sandwich variance estimator used in
-%     the inference block below.
 %   Stram, D.O. & Lee, J.W. (1994). Variance components testing in the
 %     longitudinal mixed effects model. Biometrics 50(4):1171-1177.
-%     (with correction in Biometrics 51(3):1196, 1995). Documents the
-%     boundary issue for variance-component MLEs that motivates the
-%     KappaPhiMax cap below.
+%     When a variance component is zero it lies on the boundary of the
+%     parameter space, so the usual chi-squared reference distribution for
+%     the likelihood-ratio statistic does not apply. This is why the
+%     kappa_phi -> infinity boundary above needs care.
+%   Gelman, A. (2006). Prior distributions for variance parameters in
+%     hierarchical models. Bayesian Analysis 1(3):515-533.
+%     Recommends a weakly-informative half-t / half-Cauchy prior for a
+%     group-level standard deviation. The same idea is used here, placed
+%     on kappa_phi (see "a note on which boundary", above).
 
     properties
         Formula
@@ -154,6 +219,7 @@ classdef fitcirc_lme
         PhiRho
         PhiKappaPost
         LogLikelihood
+        LogPrior
         AIC
         BIC
         NumObservations
@@ -171,7 +237,7 @@ classdef fitcirc_lme
         Rsquared
         % Variance-minimizing circular shift applied to the response
         % before fitting. Predictions add it back and wrap to (-pi, pi].
-        % Default 0 means "fit on the data as given" (legacy behavior).
+        % Default 0 means "fit on the data as given".
         ThetaShift = 0
     end
 
@@ -179,31 +245,34 @@ classdef fitcirc_lme
         function obj = fitcirc_lme(tbl, formula, varargin)
             % --- Parse name-value options ---
             p = inputParser;
-            p.addParameter('MaxIter',  100);
+            p.addParameter('MaxIter',  500);
             p.addParameter('Tol',      1e-5);
             p.addParameter('Verbose',  false);
             p.addParameter('InitKappa',     4);
             p.addParameter('InitKappaPhi',  4);
             p.addParameter('InitSigma',    []);  % deprecated; converted if given
-            % Upper cap on the random-intercept prior concentration
-            % kappa_phi, applied in the M-step. Without this, when the
-            % fixed effects absorb most of the population trend the
-            % posterior on each subject's phi_j collapses near 0 and
-            % the unconstrained M-step drives kappa_phi -> infinity
-            % (boundary case; cf. Stram & Lee 1994 on testing
-            % variance components at the boundary). That in turn
-            % dominates the marginal LL's `- n_subj * log I0(kappa_phi)`
-            % term and drags it down, so the LRT incorrectly rejects
-            % higher-order fixed-effects models even when they
-            % genuinely improve fit (Wald-significant slope, big
-            % R2_circ gain). KappaPhiMax = 8 corresponds to a minimum
-            % allowed subject-level circular sd of ~0.36 rad (~21deg),
-            % below typical spindle-phase measurement noise, so it
-            % does not bind on realistic random-effects structure -- it
-            % only prevents the boundary blow-up. Tighter cap -> more
-            % subject heterogeneity allowed; looser cap restores the
-            % old pathology. Set to inf to disable.
-            p.addParameter('KappaPhiMax', 8);
+            % Weakly-informative prior on the subject-spread concentration
+            % kappa_phi. It guards against a specific failure: when the
+            % fixed effects absorb the population trend, each subject's
+            % estimated offset collapses near 0, R_phi -> 1, and the plain
+            % estimate of kappa_phi runs to infinity (the sigma_phi -> 0
+            % boundary; see Stram & Lee 1994 on variance components at a
+            % boundary). At that point I0(kappa_phi) overflows and the
+            % marginal log-likelihood becomes NaN, which would make
+            % nested-model comparisons (e.g. the order-selection LRT)
+            % unreliable. The prior is a smooth half-Cauchy (by default) on
+            % kappa_phi, folded into the exact 1-D M-step; it keeps the
+            % estimate finite and the log-likelihood smooth. The reported
+            % LogLikelihood is the unpenalized marginal value at the fitted
+            % kappa_phi, so it stays comparable across models. The scale
+            % defaults to 8 (prior median kappa_phi ~ 8, i.e. a subject
+            % spread sigma_phi ~ 0.36 rad / 21 deg).
+            p.addParameter('KappaPhiPrior',      'halfcauchy');
+            p.addParameter('KappaPhiPriorScale', 8);
+            % Optional hard upper limit on kappa_phi, applied after the
+            % prior. Inf (default) leaves the prior in charge; a finite
+            % value simply clamps via kappa_phi = min(estimate, KappaPhiMax).
+            p.addParameter('KappaPhiMax', inf);
             % AutoShift = true: rotate y by the variance-minimizing shift
             % so wrapping doesn't split the response near +/- pi. The shift
             % is recorded in ThetaShift and added back during predict().
@@ -296,8 +365,16 @@ classdef fitcirc_lme
             rho     = zeros(n_subj, 1);
 
             ll_trace = nan(opt.MaxIter, 1);
-            ll_prev  = -inf;
             it = 0;
+            n_bt = 20;   % max step-halvings for the ascent guard
+
+            % Penalized marginal log-likelihood at the starting parameters.
+            % The EM is kept MONOTONE in this objective (see the ascent
+            % guard below), so it can never wander downhill into a bad
+            % optimum or report a likelihood below a smaller nested model.
+            [ll_data, ll_prev] = local_marginal_ll(X, y, g_idx, n_subj, n, ...
+                beta, kappa, kappa_phi, opt.KappaPhiPrior, opt.KappaPhiPriorScale);
+            ll_pen = ll_prev;
 
             for it = 1:opt.MaxIter
                 % --- E-STEP (exact: posterior is vonMises) ---
@@ -316,43 +393,79 @@ classdef fitcirc_lme
                 phi_hat = mu_post;
                 offset  = mu_post(g_idx);
 
-                % --- M-STEP ---
+                % --- M-STEP (propose a candidate parameter update) ---
                 % beta: weighted IRLS, weight rho_i per observation
                 w = rho(g_idx);
-                beta = local_irls_circ_offset(X, y, offset, beta, w, 50);
+                beta_new = local_irls_circ_offset(X, y, offset, beta, w, 50);
 
-                % kappa: Banerjee on residuals deflated by rho_i
-                resid = wrapToPi(y - X*beta - offset);
-
+                % kappa: mean resultant length of the residual angles,
+                % weighting each observation by rho_i, then converted to a
+                % concentration. The rho_i weights account for the offsets
+                % being known only approximately.
+                resid = wrapToPi(y - X*beta_new - offset);
                 Sc = sum(sin(resid) .* w);
                 Cc = sum(cos(resid) .* w);
                 R_corr = sqrt(Sc*Sc + Cc*Cc) / n;
-                kappa  = local_kappa_from_R(R_corr, n);
+                kappa_new = local_kappa_from_R(R_corr, n);
 
-                % kappa_phi: constrained MLE (prior mean fixed at 0).
-                % A(kappa_phi) = max(0, mean_i rho_i * cos(mu_post_i)).
-                % Cap at opt.KappaPhiMax to prevent the boundary
-                % blow-up (kappa_phi -> infinity when the posterior on
-                % phi_j collapses near 0). See parameter docstring.
-                R_phi = max(0, mean(rho .* cos(mu_post)));
-                kappa_phi = local_kappa_from_R(R_phi, n_subj);
-                kappa_phi = min(kappa_phi, opt.KappaPhiMax);
+                % kappa_phi: penalized 1-D MLE (prior mean fixed at 0).
+                % Maximizes n_subj*(R_phi*k - logI0(k)) + logprior(k) with
+                % R_phi = mean_i rho_i cos(mu_post_i); the prior keeps the
+                % sigma_phi -> 0 (kappa_phi -> Inf) boundary finite. The
+                % optional hard ceiling (Inf by default) is applied last.
+                R_phi         = mean(rho .* cos(mu_post));
+                kappa_phi_new = local_kappaphi_update(R_phi, n_subj, ...
+                                opt.KappaPhiPrior, opt.KappaPhiPriorScale);
+                kappa_phi_new = min(kappa_phi_new, opt.KappaPhiMax);
 
-                % Marginal LL (exact)
-                ll_data = sum(local_logI0(K_post)) ...
-                        - n      * (log(2*pi) + local_logI0(kappa)) ...
-                        - n_subj * local_logI0(kappa_phi);
+                % --- ASCENT GUARD ---
+                % The three coordinate updates above are only approximate
+                % maximizers, so the full step can OVERSHOOT and lower the
+                % marginal likelihood. To keep EM monotone (a generalized
+                % EM), backtrack along the segment from the current
+                % parameters to the proposed ones, accepting the first step
+                % that does not decrease the penalized objective. At t -> 0
+                % the step vanishes (no change), so a non-improving
+                % direction simply stops the algorithm at the current --
+                % best so far -- point rather than diverging.
+                accepted = false;
+                t = 1;
+                for bt = 1:n_bt
+                    b_t  = beta      + t*(beta_new      - beta);
+                    k_t  = kappa     + t*(kappa_new     - kappa);
+                    kp_t = kappa_phi + t*(kappa_phi_new - kappa_phi);
+                    [lld_t, llp_t] = local_marginal_ll(X, y, g_idx, n_subj, n, ...
+                        b_t, k_t, kp_t, opt.KappaPhiPrior, opt.KappaPhiPriorScale);
+                    if llp_t >= ll_prev - 1e-9
+                        beta = b_t; kappa = k_t; kappa_phi = kp_t;
+                        ll_data = lld_t; ll_pen = llp_t;
+                        accepted = true;
+                        break
+                    end
+                    t = t / 2;
+                end
+
+                if ~accepted
+                    % No step improves the objective: already at a (local)
+                    % optimum. Keep the current parameters and stop.
+                    ll_trace(it) = ll_data;
+                    break
+                end
 
                 ll_trace(it) = ll_data;
                 if opt.Verbose
-                    fprintf('  iter %3d  ll=%.4f  kappa=%.3f  kappa_phi=%.3f\n', ...
-                            it, ll_data, kappa, kappa_phi);
+                    fprintf(['  iter %3d  ll=%.4f  (pen=%.4f)  ' ...
+                             'kappa=%.3f  kappa_phi=%.3f  step=%.3g\n'], ...
+                            it, ll_data, ll_pen, kappa, kappa_phi, t);
                 end
-                if abs(ll_data - ll_prev) / max(abs(ll_prev), 1) < opt.Tol
+                if abs(ll_pen - ll_prev) / max(abs(ll_prev), 1) < opt.Tol
+                    ll_prev = ll_pen;
                     break
                 end
-                ll_prev = ll_data;
+                ll_prev = ll_pen;
             end
+            lp_kphi = local_kphi_logprior(kappa_phi, ...
+                            opt.KappaPhiPrior, opt.KappaPhiPriorScale);
 
             % --- Final E-step (refresh posterior at converged params) ---
             eta = X * beta;
@@ -370,14 +483,28 @@ classdef fitcirc_lme
             phi_hat = mu_post;
             offset  = phi_hat(g_idx);
 
-            % --- Cluster-robust (Liang-Zeger) sandwich SEs on beta ---
-            r = wrapToPi(y - X*beta - offset);
-            W = diag(cos(r));
-            A_bread = kappa * X' * W * X;          % bread
+            % --- Cluster-robust ("sandwich") SEs on beta ---
+            % beta is the solution of the rho-weighted circular score
+            %   sum_ij w_ij X_ij sin(r_ij) = 0,   w_ij = rho_i,
+            % and the sandwich is built from that same score, so its two
+            % halves ("bread" and "meat") both carry the weight w_ij.
+            r    = wrapToPi(y - X*beta - offset);
+            w_se = rho(g_idx);                     % per-obs working weights
+            % Bread: the expected (Fisher) information of the weighted
+            % score, A = kappa*A(kappa) * sum_ij w_ij X_ij' X_ij. Using the
+            % expected information A(kappa) (rather than the per-point
+            % cos(r_ij), which turns negative once a residual exceeds pi/2)
+            % keeps this matrix positive-definite, so its inverse is stable
+            % and the variances stay non-negative. The two forms agree on
+            % average, since cos(r_ij) averages to A(kappa).
+            Ak      = local_A(kappa);
+            XtW     = X' .* w_se(:)';              % p x n, rows scaled by w
+            A_bread = (kappa * Ak) * (XtW * X);
+            % Meat: cluster sums of the same weighted score.
             B_meat  = zeros(n_par);
             for i = 1:n_subj
                 idx_i = (g_idx == i);
-                u_i   = kappa * (X(idx_i,:)' * sin(r(idx_i)));
+                u_i   = kappa * (X(idx_i,:)' * (w_se(idx_i) .* sin(r(idx_i))));
                 B_meat = B_meat + u_i * u_i';
             end
 
@@ -412,6 +539,7 @@ classdef fitcirc_lme
             obj.PhiRho             = rho;
             obj.PhiKappaPost       = K_post;
             obj.LogLikelihood      = ll_data;
+            obj.LogPrior           = lp_kphi;
             obj.NumObservations    = n;
             obj.NumSubjects        = n_subj;
             obj.NumCoefficients    = n_par;
@@ -459,7 +587,7 @@ classdef fitcirc_lme
             %     pre-orthogonalized via ortho_poly_basis); these are
             %     ALL polynomial main effects of `<base>` -- no
             %     auto-expansion needed.
-            %   * legacy raw-power: `<base>`, `<base>^k`; auto-expanded
+            %   * raw-power: `<base>`, `<base>^k`; auto-expanded
             %     by fitlme from a `^k` formula term.
             % The first convention wins if any column matches it.
             ci = struct();
@@ -692,9 +820,91 @@ end
 
 
 % --------------------------------------------------------------------
-% Invert A(k) = R using the Banerjee large-N approximation.  Used to
-% translate a target mean resultant length back to a concentration
-% (e.g. for converting an InitSigma option to InitKappaPhi).
+% Consistent marginal log-likelihood at a single parameter triple
+% (beta, kappa, kappa_phi). Every piece -- each subject's posterior
+% concentration K_post, the response term, and the prior term -- is
+% evaluated at the SAME parameters, so the returned value is the true
+% marginal LL at that point. The EM uses this both to test convergence
+% and, in the ascent guard, to score candidate steps. Returns the
+% unpenalized LL and the penalized objective (LL + log kappa_phi prior).
+% --------------------------------------------------------------------
+function [ll_data, ll_pen] = local_marginal_ll(X, y, g_idx, n_subj, n, ...
+                                  beta, kappa, kappa_phi, prior, scale)
+    eta = X * beta;
+    acc = 0;
+    for i = 1:n_subj
+        idx = (g_idx == i);
+        a   = y(idx) - eta(idx);
+        Cg  = sum(cos(a));  Sg = sum(sin(a));
+        Cx  = kappa*Cg + kappa_phi;  Sx = kappa*Sg;
+        acc = acc + local_logI0(sqrt(Cx*Cx + Sx*Sx));
+    end
+    ll_data = acc - n*(log(2*pi) + local_logI0(kappa)) - n_subj*local_logI0(kappa_phi);
+    ll_pen  = ll_data + local_kphi_logprior(kappa_phi, prior, scale);
+end
+
+
+% --------------------------------------------------------------------
+% Log of the weakly-informative prior placed ON kappa_phi to regularize
+% the sigma_phi -> 0 (kappa_phi -> Inf) boundary. Normalizing constants
+% (which do not depend on k and are identical across nested models with
+% the same scale) are dropped; only the k-dependent part is kept, so the
+% argmax and any nested-model differences are unaffected.
+%   'halfcauchy' : log p ~ -log(1 + (k/s)^2)   (heavy tail; gentle)
+%   'halfnormal' : log p ~ -k^2/(2 s^2)        (light tail; firmer)
+%   'none'       : 0
+% --------------------------------------------------------------------
+function lp = local_kphi_logprior(k, prior, scale)
+    s = scale;
+    switch lower(char(prior))
+        case 'none'
+            lp = 0;
+        case 'halfcauchy'
+            lp = -log1p((k./s).^2);
+        case 'halfnormal'
+            lp = -(k.^2) ./ (2*s^2);
+        otherwise
+            error('fitcirc_lme:badPrior', ...
+                  'KappaPhiPrior must be ''halfcauchy'', ''halfnormal'', or ''none''');
+    end
+end
+
+
+% --------------------------------------------------------------------
+% One M-step update for kappa_phi: maximize the exact 1-D objective
+%   g(k) = n_subj*(R*k - logI0(k)) + logprior(k),   k >= 0,
+% where R = mean_i rho_i cos(mu_post_i) summarizes how tightly the
+% estimated subject offsets bunch around 0 (R can be negative). The prior
+% keeps the maximizer finite, and the search is capped at k_hi so I0(k)
+% never overflows. Because the half-Cauchy term can make g non-concave, a
+% coarse grid first brackets the peak and fminbnd then refines it. When
+% R <= 0 the maximizer is k = 0.
+% --------------------------------------------------------------------
+function kphi = local_kappaphi_update(R, n_subj, prior, scale)
+    k_hi  = 1e3;                       % I0 stays finite well past here
+    % neg_g is always evaluated at a SCALAR k (grid sweep + fminbnd).
+    neg_g = @(k) -(n_subj*(R*k - local_logI0(k)) ...
+                   + local_kphi_logprior(k, prior, scale));
+    grid  = [0, logspace(-2, log10(k_hi), 60)];
+    gv    = -arrayfun(neg_g, grid);
+    [gbest, gi] = max(gv);
+    lo = grid(max(gi-1, 1));
+    hi = grid(min(gi+1, numel(grid)));
+    kphi = fminbnd(neg_g, lo, hi, optimset('TolX', 1e-6));
+    if -neg_g(kphi) < gbest        % fall back to best grid point
+        kphi = grid(gi);
+    end
+    if ~isfinite(kphi) || kphi < 0
+        kphi = 0;
+    end
+end
+
+
+% --------------------------------------------------------------------
+% Turn a target mean resultant length R back into a concentration k, i.e.
+% solve A(k) = R, using the standard piecewise approximation to the
+% inverse of A(k) = I_1(k)/I_0(k). Used, e.g., to convert an InitSigma
+% option into InitKappaPhi.
 % --------------------------------------------------------------------
 function k = local_invA(R)
     if R <= 0
@@ -712,8 +922,11 @@ end
 
 
 % --------------------------------------------------------------------
-% Banerjee kappa as a function of mean resultant length R and N.
-% Same formula as in fitlme_circ.m (kept for cross-comparability).
+% Concentration kappa from a mean resultant length R, using the standard
+% piecewise approximation that inverts A(k) = I_1(k)/I_0(k). For small
+% samples (N < 15) the maximum-likelihood kappa is biased upward, so a
+% standard small-sample correction is applied. Matches the formula used
+% in fitlme_circ.m so the two stay comparable.
 % --------------------------------------------------------------------
 function kappa = local_kappa_from_R(R, N)
     if R <= 0

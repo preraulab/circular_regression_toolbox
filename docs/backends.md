@@ -19,30 +19,35 @@ y_{ij}\mid \beta, \phi_i, \kappa \sim \operatorname{vonMises}(X_{ij}\beta + \phi
 \phi_i \sim \operatorname{vonMises}(0,\ \kappa_\phi)
 $$
 
-Both response noise and the subject random phase are von Mises. The
-conjugate prior makes the conditional posterior of $\phi_i$ closed-form
-(also von Mises) — no Laplace approximation. The exact marginal likelihood
-is
+Both the response noise and the subject offset are von Mises. That pairing
+makes each subject's offset $\phi_i$ exactly von Mises given the data and
+parameters — no Laplace approximation. The exact marginal likelihood is
 
 $$
 \log p(y_i) = \log I_0(K_{\text{post},i}) - n_i \log\bigl(2\pi\,I_0(\kappa)\bigr) - \log I_0(\kappa_\phi).
 $$
 
-**Fitter.** EM. The E-step is closed-form (von Mises conjugacy). The M-step
-runs weighted IRLS on the circular score for $\beta$, a Banerjee MLE on
-deflated residuals for $\kappa$, and a constrained MLE for $\kappa_\phi$
-(with an `inf`-disable-able cap `KappaPhiMax = 8` to prevent the boundary
-blow-up when the posterior on $\phi_j$ collapses).
+**Fitter.** EM with a closed-form E-step. The M-step runs a weighted
+circular regression (IRLS) for $\beta$, turns the $\rho_i$-weighted mean
+resultant length of the residuals into a concentration for $\kappa$, and
+finds $\kappa_\phi$ by an exact one-dimensional maximization that includes a
+weakly-informative prior. The prior keeps $\kappa_\phi$ finite when the
+subject offsets collapse toward 0 (which would otherwise send
+$\kappa_\phi \to \infty$ and overflow the likelihood); set it through
+`KappaPhiPrior` / `KappaPhiPriorScale`, with an optional hard ceiling
+`KappaPhiMax` (default `inf`).
 
 **Random effects supported.** Exactly one `(1|group)` random-intercept term.
 No random slopes, no crossed grouping factors. The grouping variable is
 named in the formula via `(1|Subj_ID)`.
 
-**Uncertainty.** Cluster-robust **Liang–Zeger (1986) sandwich** on $\beta$,
-rescaled by the small-sample factor $\frac{m}{m-1}\cdot\frac{n-1}{n-p}$.
-Inference uses Student's $t$ on $n_\text{subj} - 1$ degrees of freedom. The
-joint Wald age-effect test is computed on the full `ContrastIndex.x_age`
-block (polynomial main effects plus every age-interaction).
+**Uncertainty.** Cluster-robust ("sandwich") SEs on $\beta$ with each
+subject as one cluster, built from the same $\rho_i$-weighted score and
+using the positive-definite expected-information bread. Rescaled by the
+small-sample factor $\frac{m}{m-1}\cdot\frac{n-1}{n-p}$; inference uses
+Student's $t$ on $n_\text{subj} - 1$ degrees of freedom. The joint Wald
+age-effect test is computed on the full `ContrastIndex.x_age` block
+(polynomial main effects plus every age-interaction).
 
 **Order selection (when `Select` is on).** Step up the polynomial order
 while each nested LRT $p < 0.05$; stop at the first non-significant step.

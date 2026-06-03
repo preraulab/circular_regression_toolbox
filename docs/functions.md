@@ -234,31 +234,43 @@ y_{ij}\mid \beta, \phi_i, \kappa &\sim \operatorname{vonMises}(X_{ij}\beta + \ph
 \end{aligned}
 $$
 
-Both response noise and the subject random phase are von Mises. The closed
-form conjugacy makes the conditional posterior of $\phi_i$ exactly von Mises
-(no Laplace approximation) and bounds $\kappa_\phi$ on the natural circular
-scale instead of letting an unwrapped-Normal prior run $\sigma_\phi \to \infty$.
+Both the response noise and the subject offset are von Mises. Because of
+that pairing, each subject's offset $\phi_i$ has an exact von Mises
+distribution given the data and the parameters — no Gaussian (Laplace)
+approximation and no need to unwrap angles onto the real line — and the
+subject-to-subject spread is described directly on the circle by the
+concentration $\kappa_\phi$ (large $\kappa_\phi$ = subjects are alike).
 
-**Algorithm — high level.** EM with closed-form E-step.
+**Algorithm — high level.** EM with a closed-form E-step.
 
 - *E-step (per subject $i$, given $\beta, \kappa, \kappa_\phi$).* Compute
   $S_i = \sum_j \sin(y_{ij} - X_{ij}\beta)$,
   $C_i = \sum_j \cos(y_{ij} - X_{ij}\beta)$,
   then $K_{\text{post},i} = \sqrt{(\kappa C_i + \kappa_\phi)^2 + (\kappa S_i)^2}$
   and $\mu_{\text{post},i} = \operatorname{atan2}(\kappa S_i,\ \kappa C_i + \kappa_\phi)$.
-  Mean resultant length $\rho_i = A(K_{\text{post},i}) = I_1/I_0$.
+  The mean resultant length $\rho_i = A(K_{\text{post},i}) = I_1/I_0 \in [0,1)$
+  measures how sure we are of subject $i$'s offset (near 1 = very sure).
 - *M-step.*
-  - $\beta$: weighted IRLS on the circular score with offset $\mu_{\text{post},i}$
-    and per-observation weights $\rho_i$ (each obs counts to the extent its
-    subject's posterior is concentrated).
-  - $\kappa$: Banerjee MLE on residuals deflated by $\rho_i$.
-  - $\kappa_\phi$: constrained MLE for the prior concentration,
-    $A(\kappa_\phi) = \max(0,\ n_\text{subj}^{-1} \sum_i \rho_i \cos\mu_{\text{post},i})$,
-    capped at `KappaPhiMax` to prevent the boundary blow-up.
-- *Marginal log-likelihood* (exact, no Laplace correction):
-  $\log p(y_i) = \log I_0(K_{\text{post},i}) - n_i \log(2\pi\,I_0(\kappa)) - \log I_0(\kappa_\phi)$.
-- *Inference.* Cluster-robust Liang–Zeger sandwich on $\beta$, rescaled by
-  $\frac{m}{m-1}\cdot\frac{n-1}{n-p}$. Inference uses Student's $t$ with
+  - $\beta$: a circular regression (iteratively reweighted least squares)
+    with offset $\mu_{\text{post},i}$, weighting each observation by its
+    subject's $\rho_i$.
+  - $\kappa$: the mean resultant length of the residual angles (each
+    weighted by $\rho_i$), converted to a concentration.
+  - $\kappa_\phi$: maximize the exact one-dimensional objective
+    $n_\text{subj}\bigl(R_\phi\,k - \log I_0(k)\bigr) + \log\mathrm{prior}(k)$,
+    where $R_\phi = \mathrm{mean}_i\,\rho_i\cos\mu_{\text{post},i}$ measures
+    how tightly the estimated offsets bunch around 0. The prior keeps
+    $\kappa_\phi$ finite in the case $R_\phi \to 1$ (offsets all collapse to
+    0), which would otherwise drive $\kappa_\phi \to \infty$ and overflow the
+    log-likelihood. See `KappaPhiPrior`.
+- *Marginal log-likelihood* (exact, no approximation):
+  $\log p(y_i) = \log I_0(K_{\text{post},i}) - n_i \log(2\pi\,I_0(\kappa)) - \log I_0(\kappa_\phi)$,
+  reported unpenalized so it is comparable across nested models.
+- *Inference.* Cluster-robust ("sandwich") SEs on $\beta$ with each subject
+  as one cluster, built from the same $\rho_i$-weighted score. The bread is
+  the expected (Fisher) information $\kappa A(\kappa)\sum_{ij}\rho_i X_{ij}'X_{ij}$,
+  which is always positive-definite. Rescaled by
+  $\frac{m}{m-1}\cdot\frac{n-1}{n-p}$; tests use Student's $t$ with
   $n_\text{subj} - 1$ degrees of freedom.
 
 **Inputs.**
@@ -273,7 +285,9 @@ scale instead of letting an unwrapped-Normal prior run $\sigma_\phi \to \infty$.
 | `InitKappa` | scalar | Starting $\kappa$. | `4` |
 | `InitKappaPhi` | scalar | Starting $\kappa_\phi$. | `4` |
 | `InitSigma` | scalar | Deprecated; converted to `InitKappaPhi` via $A(\kappa_\phi) = e^{-\sigma^2/2}$. | `[]` |
-| `KappaPhiMax` | scalar | Upper cap on $\kappa_\phi$ in the M-step. Prevents the boundary blow-up when the posterior on each $\phi_j$ collapses near zero. `inf` to disable. | `8` |
+| `KappaPhiPrior` | char | Weakly-informative prior on $\kappa_\phi$ that keeps its estimate finite: `'halfcauchy'`, `'halfnormal'`, or `'none'`. | `'halfcauchy'` |
+| `KappaPhiPriorScale` | scalar | Scale of that prior on the $\kappa_\phi$ axis. Larger = weaker pull = more subject spread allowed. | `8` |
+| `KappaPhiMax` | scalar | Optional hard upper limit on $\kappa_\phi$, applied after the prior. `inf` leaves the prior in charge; a finite value clamps $\kappa_\phi$ at that ceiling. | `inf` |
 | `AutoShift` | logical | Rotate $y$ by the variance-minimizing shift (`circ_shift_min_var`) so wrapping doesn't split the response near $\pm\pi$. Recorded in `ThetaShift` and absorbed into the intercept after fitting. | `false` |
 | `ThetaShift` | scalar | Explicit shift; overrides `AutoShift`. | `[]` |
 | `InitBeta` | numeric | Warm-start $\beta$. Names matched against new design column names; absent columns start at 0. | `[]` |
@@ -290,7 +304,8 @@ scale instead of letting an unwrapped-Normal prior run $\sigma_\phi \to \infty$.
 | `KappaPhi` | scalar | Prior concentration on subject phase. |
 | `SigmaPhi` | scalar | Equivalent circular SD, $\sqrt{-2\log A(\kappa_\phi)}$. |
 | `PhiHat`, `PhiRho`, `PhiKappaPost` | $n_\text{subj} \times 1$ | Posterior mean direction, mean resultant length, concentration per subject. |
-| `LogLikelihood` | scalar | Exact marginal LL at the converged params. |
+| `LogLikelihood` | scalar | Exact marginal LL at the converged params (unpenalized, so comparable across nested models). |
+| `LogPrior` | scalar | Log $\kappa_\phi$ prior at the converged params; the penalized objective the M-step climbs is `LogLikelihood + LogPrior`. |
 | `AIC`, `BIC` | scalar | Based on $p + 2$ free parameters. |
 | `NumObservations`, `NumSubjects`, `NumCoefficients` | scalar | Counts. |
 | `ConvergedIn`, `ConvergenceHistory` | scalar, vector | EM iteration count and per-iter LL trace. |
@@ -325,6 +340,14 @@ scale instead of letting an unwrapped-Normal prior run $\sigma_\phi \to \infty$.
 - Cluster-robust sandwich SEs can under-cover with very small per-cluster
   $n_j$ (e.g. $n_j = 2$). For primary inference with very small clusters,
   prefer the resample-based options through `circ_fit_fitcirc`.
+- The `KappaPhiPrior` guards a boundary: when a variance component is zero
+  the likelihood-ratio statistic does not follow the usual $\chi^2$
+  (Stram & Lee 1994), and here the troublesome boundary is *zero* subject
+  spread ($\kappa_\phi \to \infty$). A weakly-informative prior keeps the
+  log-likelihood finite and smooth so model comparisons stay well defined.
+  This mirrors Gelman's (2006) weakly-informative prior for a group-level
+  standard deviation, here placed on $\kappa_\phi$ because the boundary of
+  concern is the opposite one (zero spread rather than large spread).
 
 **Example.**
 ```matlab
@@ -336,11 +359,11 @@ fprintf('Any-age effect: F=%.2f, df=%d, p=%.2e\n', ...
         ageBlock.Fstat, ageBlock.df1, ageBlock.pValue);
 ```
 
-**References (from the source file).**
-- Banerjee, Dhillon, Ghosh & Sra (2005), *JMLR* 6:1345–1382.
-- Best & Fisher (1981), *Comm. Stat. Sim. Comp.* B10(5):493–502.
-- Liang & Zeger (1986), *Biometrika* 73(1):13–22.
-- Stram & Lee (1994), *Biometrics* 50(4):1171–1177 (corr. 51(3):1196, 1995).
+**References.**
+- Stram & Lee (1994), *Biometrics* 50(4):1171–1177. Variance components on
+  the boundary of the parameter space.
+- Gelman (2006), *Bayesian Analysis* 1(3):515–533. Weakly-informative
+  priors for group-level scale parameters.
 
 ---
 
