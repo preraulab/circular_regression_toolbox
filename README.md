@@ -16,13 +16,13 @@ the worse the distortion gets.
 
 The right approach is a **circular regression**: the response is modeled by a
 distribution on the circle (the von Mises distribution, the circular analogue
-of the Normal), the residual size is measured by `1 − cos(y − ŷ)` rather than
+of the Normal), residual size is measured by `1 − cos(y − ŷ)` rather than
 `(y − ŷ)²`, and the wrap-around is handled correctly by construction. There
 are well-established circular-regression methods in the statistics literature,
 and several mature R packages implement them (`brms`, `bpnreg`, `lme4`'s
-sin/cos workaround). **MATLAB has no native support for any of this.** A grad
-student running a MATLAB analysis pipeline who suddenly needs to regress an
-angle on age has to either (a) misuse `fitlme` and silently bias the result,
+sin/cos workaround). **MATLAB has no native support for any of this.** A
+MATLAB-based analysis that needs to regress an angle on a covariate is left
+with three options: (a) misuse `fitlme` and silently bias the result,
 (b) bridge into R for every fit, or (c) hand-code a von Mises GLMM from
 scratch. None of those scale.
 
