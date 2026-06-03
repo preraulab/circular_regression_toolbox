@@ -11,6 +11,8 @@ Pick by the criteria in the [chooser](#chooser) at the bottom of this page.
 
 ## fitcirc_lme — native MATLAB
 
+> Full technical reference: [`docs/methods/fitcirc_lme.md`](methods/fitcirc_lme.md).
+
 **Model.** True von Mises generalized linear mixed model:
 
 $$
@@ -71,6 +73,8 @@ represent a mean that wraps a full revolution (vM mean is a single point).
 
 ## brms — Bayesian von Mises GLMM, Stan
 
+> Full technical reference: [`docs/methods/brms.md`](methods/brms.md).
+
 **Model.** Same vM-GLMM as `fitcirc_lme`, fit via Stan with a `tan_half` link.
 brms parameterizes the linear predictor with a polynomial in standardized
 Age (z-scored before fitting; predictions de-standardized on output).
@@ -114,6 +118,8 @@ mean that wraps a full revolution. `cores = 1` slows sampling.
 
 ## lme4 — sin/cos parallel LMEs
 
+> Full technical reference: [`docs/methods/lme4.md`](methods/lme4.md).
+
 **Model.** Two parallel Gaussian LMMs: one on $\sin y$, one on $\cos y$.
 Reconstructed angle is $\text{atan2}(\widehat{\sin y},\ \widehat{\cos y})$.
 This is the frequentist projected-Gaussian approach.
@@ -145,6 +151,8 @@ result schema is **not** populated.
 ---
 
 ## bpnreg — Bayesian projected-normal mixed model
+
+> Full technical reference: [`docs/methods/bpnreg.md`](methods/bpnreg.md).
 
 **Model.** `bpnreg::bpnme` projected-normal mixed model with a polynomial
 in raw Age. Like lme4's sin/cos but Bayesian and modeling the projected

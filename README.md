@@ -93,6 +93,8 @@ picking one.
 
 ### `fitcirc_lme` — native von Mises mixed-effects model
 
+[**Full technical reference: `docs/methods/fitcirc_lme.md`**](docs/methods/fitcirc_lme.md) — exact model, EM derivation, monotonicity guarantees, cluster-robust sandwich SE construction, GOF formulas.
+
 **What the model says.** Each subject has a personal baseline angle, and
 each of their observations sits a random distance away from the
 population trend plus their personal offset. Both the per-observation
@@ -150,6 +152,8 @@ well does it predict if we also know the subject?"
 
 ### `brms` — Bayesian von Mises mixed-effects model (R + Stan)
 
+[**Full technical reference: `docs/methods/brms.md`**](docs/methods/brms.md) — model, priors, NUTS sampler, convergence diagnostics, LOO order selection, omnibus age-effect statistic.
+
 **What the model says.** The same von Mises GLMM as `fitcirc_lme`, but
 fit in a Bayesian framework with weakly-informative priors on every
 parameter. The link function is `tan_half`, which maps the real-valued
@@ -190,6 +194,8 @@ sampled parameter (should be < 1.01); and the **R²_circ** computed on
 posterior-mean predictions.
 
 ### `lme4` — sin/cos parallel linear mixed models (R)
+
+[**Full technical reference: `docs/methods/lme4.md`**](docs/methods/lme4.md) — model, atan2 trajectory reconstruction, bootMer parametric bootstrap band, Bonferroni-union joint LRT, where the two-stage decoupling introduces approximation.
 
 **What the model says.** This one is not a single circular model; it is
 **two ordinary linear mixed models stacked in parallel**, one on the
@@ -239,6 +245,8 @@ went into the Bonferroni union, the **trajectory bootstrap CI**, and
 the two component **R²**s (one each for sin and cos).
 
 ### `bpnreg` — Bayesian projected-normal mixed model (R)
+
+[**Full technical reference: `docs/methods/bpnreg.md`**](docs/methods/bpnreg.md) — projected-normal latent model, Gibbs sampler with data augmentation, WAIC order selection, why this differs from the two-stage sin/cos approach.
 
 **What the model says.** An angle is treated as the **angle of a 2-D
 Gaussian latent vector projected onto the unit circle**. The latent
