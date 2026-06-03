@@ -465,29 +465,57 @@ stopping when the LRT no longer accepts the next term at α = 0.05.
 
 ### 3. Read the result against truth
 
+Typing the result at the prompt prints the model-summary block (the
+`circ_result` classdef's `disp` method), and a few targeted `fprintf`
+calls below pull the headline numbers into a compact comparison
+against the truth:
+
 ```matlab
+disp(result);     % model summary (formula, NObs, coefficients, omnibus age, R²)
+
 fprintf('Selected polynomial order: %d   (truth = 2)\n', result.SelectedOrder);
 fprintf('Omnibus Age test p-value:  %.3g\n',             result.AgeEffect.pValue);
 fprintf('R2_circ marginal:          %.3f\n',             result.GOF.R2_circ_marginal);
 fprintf('R2_circ conditional:       %.3f\n',             result.GOF.R2_circ_conditional);
 fprintf('MAE_angular:               %.3f rad\n',         result.GOF.MAE_angular);
-disp(result.Coefficients);
 ```
 
-Expected output (the exact numbers depend on the RNG seed):
+Actual output from the seeded `rng(0)` run (run `tutorial.m` to
+reproduce):
 
 ```
+  Circular mixed-effects regression (backend: fitcirc_lme)
+----------------------------------------------------------
+
+  Formula            Phase ~ 1 + Age_op1 + Age_op2 + (1|Subj_ID)
+  N obs / groups     800 / 100
+  Polynomial order   2   (selected by LRT)
+
+  Fixed-effect coefficients:
+   Name            Estimate         SE      tStat     pValue
+   (Intercept)       0.5324   0.003104      171.5   < 1e-308
+   Age_op1           -16.03    0.09902     -161.8   < 1e-308
+   Age_op2            -4.97     0.0976     -50.92   < 1e-308
+
+  Omnibus age effect F(2) = 15068.528,  p = < 1e-308   [Wald]
+
+  R^2_circ marginal  0.553
+  R^2_circ condit.   0.819
+  MAE_angular        0.393 rad   (= 22.5 deg)
+
 Selected polynomial order: 2   (truth = 2)
-Omnibus Age test p-value:  ~0
-R2_circ marginal:          ~0.15
-R2_circ conditional:       ~0.65
-MAE_angular:               ~0.32 rad
+Omnibus Age test p-value:  0
+R2_circ marginal:          0.553
+R2_circ conditional:       0.819
+MAE_angular:               0.393 rad
 ```
 
-The selected order matches the truth, the omnibus age test is decisively
-significant, and the gap between marginal and conditional R² tells you that
-subject heterogeneity is a large component of the response variance — which
-matches the modest `kappa_phi = 6` we set up.
+The step-up LRT picked the right polynomial order (2, matching the
+truth); the omnibus Age effect is decisively significant; and the
+gap between marginal R² (0.553) and conditional R² (0.819) says that
+~27 percentage points of the response variance lives in the per-
+subject baseline that Age alone does not capture — which matches the
+modest `kappa_phi = 6` we set up.
 
 **Why the Age coefficients in `result.Coefficients` don't match `beta_age`
 and `beta_age2` directly.** The toolbox fits in an orthogonal-polynomial
@@ -518,6 +546,8 @@ parameter (`κ_φ` for subjects, `κ` for residuals); the ICC is then
 ```matlab
 plot(result, T);
 ```
+
+![Tutorial fit](docs/tutorial_fit.png)
 
 `plot(result, T)` dispatches to `circ_result.plot`, which in turn calls
 the toolbox plotter (`plot_circ_fit`). The trajectory mean and CI band
