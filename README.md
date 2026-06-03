@@ -80,6 +80,277 @@ For a hands-on introduction with simulated data, see the [Tutorial
 section below](#tutorial-simulate-fit-recover) (or run [`tutorial.m`](tutorial.m)
 in MATLAB).
 
+## The four methods
+
+The four backends fall into two families based on how they represent the
+angular response. The first family — `fitcirc_lme` and `brms` — fits a
+**single circular distribution** (the von Mises) directly on the angle.
+The second — `lme4` and `bpnreg` — fits **two coupled real-valued models**
+(sin/cos or projected-normal x/y) and combines them into an angle at the
+end. That structural choice is the main thing that drives when one
+backend is better than another, so it's worth understanding before
+picking one.
+
+### `fitcirc_lme` — native von Mises mixed-effects model
+
+**What the model says.** Each subject has a personal baseline angle, and
+each of their observations sits a random distance away from the
+population trend plus their personal offset. Both the per-observation
+noise and the per-subject offset follow a **von Mises** distribution —
+the circular analogue of the Normal, parameterized by a concentration
+`κ` (large `κ` = tightly clustered angles, small `κ` = wide spread). In
+symbols:
+
+$$
+y_{ij} \sim \text{vonMises}(X_{ij}\beta + \phi_i,\ \kappa),\quad
+\phi_i \sim \text{vonMises}(0,\ \kappa_\phi).
+$$
+
+**How it's fit.** EM algorithm. The E-step computes, in closed form,
+each subject's posterior offset distribution given the data and the
+current parameters; no Laplace or Gaussian approximation. The M-step
+updates `β` by iteratively reweighted least squares on the angular
+residuals (each observation weighted by how confident we are of its
+subject's offset), and updates the two concentrations from circular
+mean resultant lengths. Each step is backtracked so the marginal
+log-likelihood is **monotone non-decreasing** — successive polynomial
+orders are warm-started from the previous order's converged solution,
+so `LL(order k) ≥ LL(order k−1)` by construction and the order-selection
+LRT is well posed.
+
+**Strengths.** Pure MATLAB, no R dependency; closed-form E-step; honest
+cluster-robust (Liang–Zeger sandwich) standard errors keyed on the
+random-effect grouping variable; small-sample F-correction; fast (one
+fit is seconds, not minutes).
+
+**Limits.** Single `(1|group)` random intercept only — no random slopes,
+no crossed grouping factors. The population trend is a single circular
+point (a von Mises mean), which **cannot sweep more than one revolution
+of the response**; for trajectories that wrap a full 2π over the
+predictor range, use `lme4` or `bpnreg` instead.
+
+**Paper reporting.** A defensible methods sentence:
+
+> Circular features were modeled with a von Mises mixed-effects
+> regression (`fitcirc_lme`) with fixed effects [list them] and a per-
+> subject random intercept. Polynomial order in [predictor] was chosen
+> by step-up likelihood-ratio test (α = 0.05, max order [k]). Standard
+> errors are cluster-robust (Liang & Zeger 1986 sandwich) keyed on
+> subject, with a small-sample correction. Single-coefficient tests use
+> Student's *t*; the omnibus age-effect test is a joint Wald across all
+> age-involving coefficients (polynomial main effects plus every age ×
+> covariate interaction).
+
+What to put in the results table per fit: the **selected polynomial
+order**, the **omnibus age-effect statistic** (F, df, p), the **per-
+coefficient** estimates with cluster-robust SEs and *t*-test p-values,
+and both R² flavors — **R²ₘ (marginal)** for "how well does the
+population trend alone predict?" and **R²_c (conditional)** for "how
+well does it predict if we also know the subject?"
+
+### `brms` — Bayesian von Mises mixed-effects model (R + Stan)
+
+**What the model says.** The same von Mises GLMM as `fitcirc_lme`, but
+fit in a Bayesian framework with weakly-informative priors on every
+parameter. The link function is `tan_half`, which maps the real-valued
+linear predictor onto an angle in (−π, π].
+
+**How it's fit.** Hamiltonian Monte Carlo via Stan. Order selection
+uses **leave-one-out cross-validation** (`loo` ELPD differences;
+accept the larger order when `elpd_diff > 2 × se_diff`), with the
+classical LRT reported alongside for cross-checking. Uncertainty is
+the full joint posterior — every quantity (trajectory, coefficient,
+GOF) comes with a 95% credible interval drawn from the MCMC samples.
+
+**Strengths.** Posterior-based inference, so uncertainty propagation
+into derived quantities (predictions, differences between trajectories,
+etc.) is principled. LOO + LRT side by side gives a sanity check on
+order selection. Robust to small samples in a way frequentist Wald is
+not.
+
+**Limits.** Same `tan_half` link bound — **cannot sweep more than one
+revolution**. Slow: one fit is several minutes. Requires R + the `brms`
+package + a working Stan toolchain, so adds an external dependency.
+
+**Paper reporting.** A defensible methods sentence:
+
+> We fit a Bayesian von Mises mixed-effects regression with `brms`
+> (Stan back end, `tan_half` link, weakly-informative defaults).
+> Polynomial order in [predictor] was chosen by leave-one-out cross-
+> validation (`loo`), accepting the larger order when the ELPD
+> difference exceeded twice its standard error; the classical
+> likelihood-ratio test gave the same selection. Each parameter is
+> reported as the posterior median with a 95% credible interval.
+
+Per fit, report: **selected order**; **posterior median + 95% CrI**
+for each coefficient (and for the omnibus age effect, the posterior
+probability that all age-involving coefficients are simultaneously
+zero, or equivalently the LOO ELPD against the null); **R̂** for each
+sampled parameter (should be < 1.01); and the **R²_circ** computed on
+posterior-mean predictions.
+
+### `lme4` — sin/cos parallel linear mixed models (R)
+
+**What the model says.** This one is not a single circular model; it is
+**two ordinary linear mixed models stacked in parallel**, one on the
+sine of the response and one on the cosine. Each model is fit
+independently by REML through `lme4::lmer`. The angular trajectory is
+reconstructed at evaluation time as `atan2(ŝin, ĉos)`.
+
+**How it's fit.** Two separate `lme4` fits. Order selection uses a
+combined sin+cos LRT: a polynomial order is accepted if either
+component model accepts it (in practice this is the more conservative
+of the two LRT p-values via a Bonferroni union). Uncertainty in the
+trajectory comes from `bootMer` — a parametric bootstrap of the joint
+sin/cos predictions, recombined through `atan2` per bootstrap replicate
+so the band on the reconstructed angle is honest about both components'
+uncertainty at once.
+
+**Strengths.** The reconstructed trajectory `atan2(ŝin, ĉos)` **can
+sweep a full 2π revolution** of the predictor — useful if the angle
+genuinely makes more than a half-circle excursion (e.g. an oscillation
+that drifts a complete cycle across age). Uses well-tested `lme4`
+machinery; frequentist; supports `lme4`'s full random-effects grammar
+(random slopes, crossed factors, etc.).
+
+**Limits.** The two-stage decoupling is the elephant in the room: the
+sin and cos parts of an angle are constrained (they live on the unit
+circle together), so fitting them as two independent Gaussian models
+is structurally wrong. Standard errors and tests are approximate —
+fine for exploratory work, less defensible for a strict null result.
+The Bonferroni-union joint test is **conservative** (you may miss real
+effects).
+
+**Paper reporting.** A defensible methods sentence:
+
+> The sine and cosine of the angle response were fit as parallel
+> linear mixed-effects models in `lme4`, with fixed effects [list them]
+> and a per-subject random intercept on each component. The combined
+> trajectory was reconstructed as `atan2(ŝin, ĉos)` with a 95%
+> trajectory band from a parametric bootstrap (`bootMer`). The omnibus
+> polynomial-order test is the more conservative of the two component
+> LRTs (Bonferroni union). Because the sin/cos pair are treated as
+> independent linear responses, reported standard errors are
+> approximate; we use this backend as a sensitivity check against
+> [primary backend] and report disagreement when it occurs.
+
+Per fit, report: **selected order**, the **two LRT p-values** that
+went into the Bonferroni union, the **trajectory bootstrap CI**, and
+the two component **R²**s (one each for sin and cos).
+
+### `bpnreg` — Bayesian projected-normal mixed model (R)
+
+**What the model says.** An angle is treated as the **angle of a 2-D
+Gaussian latent vector projected onto the unit circle**. The latent
+`(x, y)` Gaussian has fixed effects and per-subject random intercepts
+on each component; the observed angle is `atan2(y, x)`. This is a
+proper joint model (unlike sin/cos parallel) because the two components
+share a covariance structure that's estimated from the data.
+
+**How it's fit.** MCMC, using `bpnreg::bpnme`. Order selection is by
+**WAIC**. Uncertainty is the full posterior, evaluated through the
+projection step at every MCMC draw so the band on the reconstructed
+angle is honest.
+
+**Strengths.** Like `lme4`, the reconstructed angle **can sweep a full
+2π revolution** — the latent Gaussian carries no wrap-around constraint.
+Unlike `lme4`, the model is a proper joint likelihood. Bayesian
+inference. The projected-normal family has been argued in the circular-
+stats literature to be a better physical model than the von Mises for
+some classes of angles (anything generated as an angle of a vector).
+
+**Limits.** Requires R + `bpnreg`. WAIC is the only order-selection
+criterion exposed (no closed-form Wald test for "is there an age
+effect?"); the `AgeEffect.pValue` returned by the toolbox is **derived
+from WAIC differences**, not a classical p, so it should be reported as
+such. Slow.
+
+**Paper reporting.** A defensible methods sentence:
+
+> We fit a Bayesian projected-normal mixed-effects regression with
+> `bpnreg` (latent bivariate Gaussian, projected to the unit circle
+> per row). Polynomial order in [predictor] was chosen by WAIC. Each
+> parameter is reported as the posterior median with a 95% credible
+> interval. The omnibus age-effect statistic is a WAIC-based
+> probability that the larger model is preferred over the no-age
+> model, not a classical p-value.
+
+Per fit, report: **selected order**; **posterior median + 95% CrI** for
+each coefficient and for the trajectory; **WAIC values** for each
+polynomial order considered; the per-component (sin/cos) **R²**s on
+posterior-mean predictions.
+
+## Which method to use
+
+A quick three-question chooser:
+
+1. **Does your angular trajectory plausibly wrap more than one
+   revolution across the predictor range?** (Imagine: would the
+   "true" curve, if you could see it, swing more than 180° from one end
+   of the predictor to the other?)
+   - **No** → `fitcirc_lme` (default) or `brms`. The von Mises family
+     gives the right likelihood for a half-circle-or-less trajectory
+     and the SEs / posteriors are honest.
+   - **Yes** → `lme4` or `bpnreg`. The von Mises mean is a single
+     circular point; it physically cannot represent a trajectory that
+     wraps further than one revolution. Switch to a two-component
+     representation.
+
+2. **Frequentist or Bayesian inference?**
+   - **Frequentist** → `fitcirc_lme` (the primary recommendation) for
+     ≤ one-revolution trajectories, or `lme4` for full-revolution.
+   - **Bayesian** → `brms` for ≤ one-revolution, or `bpnreg` for
+     full-revolution.
+
+3. **How important is fit speed?**
+   - **Fast** → `fitcirc_lme` (seconds per fit). Useful when you have
+     dozens of features × clusters to fit.
+   - **OK with minutes** → any backend.
+
+The combination matrix:
+
+|                           | ≤ one revolution | Full revolution |
+|---------------------------|------------------|-----------------|
+| **Frequentist**           | `fitcirc_lme`    | `lme4`          |
+| **Bayesian**              | `brms`           | `bpnreg`        |
+
+### How to report this in a paper
+
+Three patterns, depending on whether the choice of backend is part of
+the contribution or just a tool:
+
+**Pattern A — single backend (most papers).** Pick one based on the
+chooser above. Use the methods sentence template from that backend's
+section. Add **one sentence** stating that the choice was based on the
+expected angular range of the trajectory and (if relevant) the
+frequentist-vs-Bayesian framing of the inference. Example:
+
+> Because preferred-phase trajectories were not expected to span more
+> than half a circle across the lifespan, we used the von Mises mixed-
+> effects backend (`fitcirc_lme`) as the primary estimator.
+
+**Pattern B — robustness check (recommended when the result matters).**
+Fit two backends (typically the primary + one cross-check). Report
+**both** trajectories and **both** age-effect statistics. State that the
+inferences agreed if they did, and quantify the difference if they did
+not. Example:
+
+> The age effect was significant under the primary von Mises mixed-
+> effects fit (joint Wald F(3, 838) = 12.4, p < .001). To check that
+> this conclusion did not depend on the von Mises likelihood
+> assumption, we refit with a Bayesian projected-normal model
+> (`bpnreg`); the posterior probability of any age effect (WAIC-based)
+> exceeded 0.99 and the posterior median trajectory differed from the
+> frequentist fit by less than [X] radians at every age.
+
+**Pattern C — methods paper / backend comparison.** Fit all four. Show
+the trajectories overlaid in one figure (`plot_circ_fit({r1, r2, r3,
+r4}, tbl)`). The Methods section names every backend with one sentence
+per (using the templates above) and a final sentence explaining why
+each appears. The Results section reports the omnibus age-effect
+statistic from each backend on a single line so the reader can compare
+at a glance.
+
 ## Quick start
 
 ```matlab
@@ -280,35 +551,23 @@ backends (they're computed identically on the angle scale).
 `LogLikelihood`/`AIC`/`BIC` are within-backend only (different likelihood
 families).
 
-## Backend chooser
+## Backend cheat-sheet
 
-Full side-by-side comparison in [`docs/backends.md`](docs/backends.md). Quick
-chooser:
+The detailed write-up of each method, the chooser logic, and paper-
+reporting templates live in [The four methods](#the-four-methods) and
+[Which method to use](#which-method-to-use). At-a-glance table:
 
-| Backend         | Model                                 | Order selection                | Random effects               | Uncertainty           | Wraps full revolution? | Dependencies                |
-|-----------------|---------------------------------------|--------------------------------|------------------------------|-----------------------|------------------------|-----------------------------|
-| **fitcirc_lme** | von Mises GLMM, exact EM              | LRT                            | Single `(1|group)` intercept | Cluster-robust Wald (sandwich) | No                     | MATLAB only                 |
-| **brms**        | Bayesian vM-GLMM, `tan_half` link     | LOO (`elpd_diff > 2·se_diff`); LRT reported alongside | brms-side  | Posterior (Stan)      | No                     | R + `brms` + `loo` + Stan toolchain |
-| **lme4**        | Sin/cos parallel LMEs                 | Combined sin+cos LRT           | lme4-side `(1|Subj_ID)`      | Wald + optional `bootMer` band | Yes                    | R + `lme4`                  |
-| **bpnreg**      | Bayesian projected-normal mixed model | WAIC                           | bpnreg-side                  | Posterior              | Yes                    | R + `bpnreg`                |
+| Backend         | Model                                 | Order selection                                       | Random effects               | Uncertainty                    | Wraps full revolution? | Dependencies                        |
+|-----------------|---------------------------------------|-------------------------------------------------------|------------------------------|--------------------------------|------------------------|-------------------------------------|
+| **fitcirc_lme** | von Mises GLMM, exact EM              | LRT                                                   | Single `(1|group)` intercept | Cluster-robust Wald (sandwich) | No                     | MATLAB only                         |
+| **brms**        | Bayesian vM-GLMM, `tan_half` link     | LOO (`elpd_diff > 2·se_diff`); LRT reported alongside | brms-side                    | Posterior (Stan)               | No                     | R + `brms` + `loo` + Stan toolchain |
+| **lme4**        | Sin/cos parallel LMEs                 | Combined sin+cos LRT                                  | lme4-side `(1|Subj_ID)`      | Wald + optional `bootMer` band | Yes                    | R + `lme4`                          |
+| **bpnreg**      | Bayesian projected-normal mixed model | WAIC                                                  | bpnreg-side                  | Posterior                      | Yes                    | R + `bpnreg`                        |
 
-The "Age effect" significance statistic is, for every backend, an omnibus
-test that **all** age-involving terms (`Age`, `Age^k`, `Age:cat`, `Age^k:cat`)
+Full side-by-side comparison: [`docs/backends.md`](docs/backends.md). The
+"Age effect" significance statistic is, for every backend, an omnibus test
+that **all** age-involving terms (`Age`, `Age^k`, `Age:cat`, `Age^k:cat`)
 are simultaneously zero — one number per model.
-
-### When to switch backends
-
-- **Trajectory stays within ~one arc** (less than about half a revolution):
-  `fitcirc_lme` is the natural choice. The seam is handled by circular-mean
-  centering and the von Mises likelihood; sandwich SEs give correct
-  cluster-robust inference.
-- **Trajectory wraps a full revolution**: use `lme4` or `bpnreg`. Both
-  represent the mean via two components (sin/cos or projected-normal) that
-  can sweep through $2\pi$. The vM-based estimators (`fitcirc_lme`, `brms`)
-  cannot: a von Mises mean is a single circular point and the `tan_half` link
-  is bounded to one revolution.
-- **You want Bayesian inference plus LRT-equivalent comparisons**: `brms`
-  reports LOO and chi-square LRT side-by-side per polynomial step.
 
 ## Function index
 
