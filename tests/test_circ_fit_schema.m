@@ -1,8 +1,8 @@
 function test_circ_fit_schema(backends)
 %TEST_CIRC_FIT_SCHEMA  Schema-parity + wiring smoke test for circ_fit.
 %
-%   test_circ_fit_schema                       % fitcirc_lme + lme4 (fast)
-%   test_circ_fit_schema({'fitcirc_lme','brms','lme4','bpnreg'})  % all
+%   test_circ_fit_schema                       % fitcirc_lme (fast)
+%   test_circ_fit_schema({'fitcirc_lme','brms','bpnreg'})  % all
 %
 % Drives circ_fit on a real phase slice for each backend and asserts:
 %   - make_circ_result validates (required-tier fields present)
@@ -12,7 +12,7 @@ function test_circ_fit_schema(backends)
 %   - get_model_fit returns the right shapes through the circ path
 % Renders an overlay PNG via plot_circ_fit.
 
-if nargin < 1, backends = {'fitcirc_lme','lme4'}; end
+if nargin < 1, backends = {'fitcirc_lme'}; end
 
 here = fileparts(mfilename('fullpath'));
 root = fullfile(here, '..', '..', '..');
@@ -38,7 +38,6 @@ opts.Select  = true;
 opts.MaxOrder= 2;
 opts.x_col   = 'Age';
 opts.feature = feature;
-opts.Band    = false;         % skip lme4 bootMer band for speed in this smoke test
 opts.categorical_varnames = cats;
 opts.xcol_categorical_interactions = intx;
 

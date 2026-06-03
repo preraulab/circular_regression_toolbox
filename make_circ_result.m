@@ -9,7 +9,7 @@ function result = make_circ_result(s)
 % the required tier is validated.
 %
 % REQUIRED of every backend
-%   Backend         char  'fitcirc_lme' | 'brms' | 'lme4' | 'bpnreg'
+%   Backend         char  'fitcirc_lme' | 'brms' | 'bpnreg'
 %   Formula         char  Wilkinson formula actually fit
 %   ResponseName    char
 %   Order           scalar  selected (or fixed) polynomial order

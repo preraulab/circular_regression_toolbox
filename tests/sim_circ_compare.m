@@ -2,8 +2,8 @@ function sim_circ_compare(backends, outpng)
 %SIM_CIRC_COMPARE  Fit + overlay all circ_fit backends on noisy, wrapping
 % simulated phase data.
 %
-%   sim_circ_compare                                   % all four backends
-%   sim_circ_compare({'fitcirc_lme','lme4'})           % a subset
+%   sim_circ_compare                                   % all three backends
+%   sim_circ_compare({'fitcirc_lme','brms'})           % a subset
 %
 % The true mean trajectory sweeps ~6 rad across the lifespan so it crosses
 % the +pi seam once (~age 55) — i.e. the data genuinely wraps around — and
@@ -11,7 +11,7 @@ function sim_circ_compare(backends, outpng)
 % Saves and opens an overlay PNG; prints a per-backend comparison table.
 
 if nargin < 1 || isempty(backends)
-    backends = {'fitcirc_lme','brms','lme4','bpnreg'};
+    backends = {'fitcirc_lme','brms','bpnreg'};
 end
 here = fileparts(mfilename('fullpath'));
 root = fullfile(here, '..', '..', '..');
@@ -45,7 +45,6 @@ opts.Select   = true;
 opts.MaxOrder = 2;
 opts.x_col    = 'Age';
 opts.feature  = 'Phase';
-opts.Band     = true;
 opts.Chains   = 4;
 opts.Iter     = 1500;        % brms: keep the demo quick
 opts.Warmup   = 750;

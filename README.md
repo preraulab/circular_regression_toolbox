@@ -19,8 +19,8 @@ distribution on the circle (the von Mises distribution, the circular analogue
 of the Normal), residual size is measured by `1 − cos(y − ŷ)` rather than
 `(y − ŷ)²`, and the wrap-around is handled correctly by construction. There
 are well-established circular-regression methods in the statistics literature,
-and several mature R packages implement them (`brms`, `bpnreg`, `lme4`'s
-sin/cos workaround). **MATLAB has no native support for any of this.** A
+and several mature R packages implement them (`brms`, `bpnreg`).
+**MATLAB has no native support for any of this.** A
 MATLAB-based analysis that needs to regress an angle on a covariate is left
 with three options: (a) misuse `fitlme` and silently bias the result,
 (b) bridge into R for every fit, or (c) hand-code a von Mises GLMM from
@@ -30,19 +30,18 @@ scratch. None of those scale.
 
 A single MATLAB entry point — `circ_fit(table, formula, backend, options)` —
 that runs a proper circular regression and returns a uniform output struct
-regardless of which underlying estimator did the work. Four estimator
+regardless of which underlying estimator did the work. Three estimator
 backends are available:
 
 | Backend | Estimator | Where it runs |
 |---|---|---|
 | `'fitcirc_lme'` (default) | Native EM von Mises GLMM with subject random intercept and cluster-robust standard errors | MATLAB only |
 | `'brms'` | Bayesian von Mises GLMM | R (`brms` + Stan) |
-| `'lme4'` | Two parallel sin/cos linear mixed models combined via `atan2` | R (`lme4`) |
 | `'bpnreg'` | Bayesian projected-normal mixed model | R (`bpnreg`) |
 
-The reason for shipping four is that they make different trade-offs (the
+The reason for shipping three is that they make different trade-offs (the
 **Backend chooser** table below lists them side by side). If a result is
-robust, all four backends will agree; if not, you want to know that.
+robust, all three backends will agree; if not, you want to know that.
 
 What the toolbox adds on top of the bare estimators:
 
@@ -80,16 +79,15 @@ For a hands-on introduction with simulated data, see the [Tutorial
 section below](#tutorial-simulate-fit-recover) (or run [`tutorial.m`](tutorial.m)
 in MATLAB).
 
-## The four methods
+## The three methods
 
-The four backends fall into two families based on how they represent the
+The three backends fall into two families based on how they represent the
 angular response. The first family — `fitcirc_lme` and `brms` — fits a
 **single circular distribution** (the von Mises) directly on the angle.
-The second — `lme4` and `bpnreg` — fits **two coupled real-valued models**
-(sin/cos or projected-normal x/y) and combines them into an angle at the
-end. That structural choice is the main thing that drives when one
-backend is better than another, so it's worth understanding before
-picking one.
+The second — `bpnreg` — fits a **projected bivariate normal**
+(latent x/y combined into an angle via the projection step). That
+structural choice is the main thing that drives when one backend is
+better than another, so it's worth understanding before picking one.
 
 ### `fitcirc_lme` — native von Mises mixed-effects model
 
@@ -129,7 +127,7 @@ fit is seconds, not minutes).
 no crossed grouping factors. The population trend is a single circular
 point (a von Mises mean), which **cannot sweep more than one revolution
 of the response**; for trajectories that wrap a full 2π over the
-predictor range, use `lme4` or `bpnreg` instead.
+predictor range, use `bpnreg` instead.
 
 **Paper reporting.** A defensible methods sentence:
 
@@ -193,57 +191,6 @@ zero, or equivalently the LOO ELPD against the null); **R̂** for each
 sampled parameter (should be < 1.01); and the **R²_circ** computed on
 posterior-mean predictions.
 
-### `lme4` — sin/cos parallel linear mixed models (R)
-
-[**Full technical reference: `docs/methods/lme4.md`**](docs/methods/lme4.md) — model, atan2 trajectory reconstruction, bootMer parametric bootstrap band, Bonferroni-union joint LRT, where the two-stage decoupling introduces approximation.
-
-**What the model says.** This one is not a single circular model; it is
-**two ordinary linear mixed models stacked in parallel**, one on the
-sine of the response and one on the cosine. Each model is fit
-independently by REML through `lme4::lmer`. The angular trajectory is
-reconstructed at evaluation time as `atan2(ŝin, ĉos)`.
-
-**How it's fit.** Two separate `lme4` fits. Order selection uses a
-combined sin+cos LRT: a polynomial order is accepted if either
-component model accepts it (in practice this is the more conservative
-of the two LRT p-values via a Bonferroni union). Uncertainty in the
-trajectory comes from `bootMer` — a parametric bootstrap of the joint
-sin/cos predictions, recombined through `atan2` per bootstrap replicate
-so the band on the reconstructed angle is honest about both components'
-uncertainty at once.
-
-**Strengths.** The reconstructed trajectory `atan2(ŝin, ĉos)` **can
-sweep a full 2π revolution** of the predictor — useful if the angle
-genuinely makes more than a half-circle excursion (e.g. an oscillation
-that drifts a complete cycle across age). Uses well-tested `lme4`
-machinery; frequentist; supports `lme4`'s full random-effects grammar
-(random slopes, crossed factors, etc.).
-
-**Limits.** The two-stage decoupling is the elephant in the room: the
-sin and cos parts of an angle are constrained (they live on the unit
-circle together), so fitting them as two independent Gaussian models
-is structurally wrong. Standard errors and tests are approximate —
-fine for exploratory work, less defensible for a strict null result.
-The Bonferroni-union joint test is **conservative** (you may miss real
-effects).
-
-**Paper reporting.** A defensible methods sentence:
-
-> The sine and cosine of the angle response were fit as parallel
-> linear mixed-effects models in `lme4`, with fixed effects [list them]
-> and a per-subject random intercept on each component. The combined
-> trajectory was reconstructed as `atan2(ŝin, ĉos)` with a 95%
-> trajectory band from a parametric bootstrap (`bootMer`). The omnibus
-> polynomial-order test is the more conservative of the two component
-> LRTs (Bonferroni union). Because the sin/cos pair are treated as
-> independent linear responses, reported standard errors are
-> approximate; we use this backend as a sensitivity check against
-> [primary backend] and report disagreement when it occurs.
-
-Per fit, report: **selected order**, the **two LRT p-values** that
-went into the Bonferroni union, the **trajectory bootstrap CI**, and
-the two component **R²**s (one each for sin and cos).
-
 ### `bpnreg` — Bayesian projected-normal mixed model (R)
 
 [**Full technical reference: `docs/methods/bpnreg.md`**](docs/methods/bpnreg.md) — projected-normal latent model, Gibbs sampler with data augmentation, WAIC order selection, why this differs from the two-stage sin/cos approach.
@@ -260,12 +207,14 @@ share a covariance structure that's estimated from the data.
 projection step at every MCMC draw so the band on the reconstructed
 angle is honest.
 
-**Strengths.** Like `lme4`, the reconstructed angle **can sweep a full
-2π revolution** — the latent Gaussian carries no wrap-around constraint.
-Unlike `lme4`, the model is a proper joint likelihood. Bayesian
-inference. The projected-normal family has been argued in the circular-
-stats literature to be a better physical model than the von Mises for
-some classes of angles (anything generated as an angle of a vector).
+**Strengths.** The reconstructed angle **can sweep a full 2π
+revolution** — the latent Gaussian carries no wrap-around constraint.
+The two latent components share a covariance estimated from the data,
+so the joint likelihood is proper (not a decoupled pair of marginals).
+Bayesian inference. The projected-normal family has been argued in the
+circular-stats literature to be a better physical model than the von
+Mises for some classes of angles (anything generated as an angle of a
+vector).
 
 **Limits.** Requires R + `bpnreg`. WAIC is the only order-selection
 criterion exposed (no closed-form Wald test for "is there an age
@@ -299,14 +248,15 @@ A quick three-question chooser:
    - **No** → `fitcirc_lme` (default) or `brms`. The von Mises family
      gives the right likelihood for a half-circle-or-less trajectory
      and the SEs / posteriors are honest.
-   - **Yes** → `lme4` or `bpnreg`. The von Mises mean is a single
-     circular point; it physically cannot represent a trajectory that
-     wraps further than one revolution. Switch to a two-component
-     representation.
+   - **Yes** → `bpnreg`. The von Mises mean is a single circular
+     point; it physically cannot represent a trajectory that wraps
+     further than one revolution. The projected-normal latent
+     representation carries no wrap-around constraint and so handles
+     this case.
 
 2. **Frequentist or Bayesian inference?**
-   - **Frequentist** → `fitcirc_lme` (the primary recommendation) for
-     ≤ one-revolution trajectories, or `lme4` for full-revolution.
+   - **Frequentist** → `fitcirc_lme` (the primary recommendation,
+     applicable to ≤ one-revolution trajectories).
    - **Bayesian** → `brms` for ≤ one-revolution, or `bpnreg` for
      full-revolution.
 
@@ -319,7 +269,7 @@ The combination matrix:
 
 |                           | ≤ one revolution | Full revolution |
 |---------------------------|------------------|-----------------|
-| **Frequentist**           | `fitcirc_lme`    | `lme4`          |
+| **Frequentist**           | `fitcirc_lme`    | (not supported) |
 | **Bayesian**              | `brms`           | `bpnreg`        |
 
 ### How to report this in a paper
@@ -351,9 +301,9 @@ not. Example:
 > exceeded 0.99 and the posterior median trajectory differed from the
 > frequentist fit by less than [X] radians at every age.
 
-**Pattern C — methods paper / backend comparison.** Fit all four. Show
-the trajectories overlaid in one figure (`plot_circ_fit({r1, r2, r3,
-r4}, tbl)`). The Methods section names every backend with one sentence
+**Pattern C — methods paper / backend comparison.** Fit all three. Show
+the trajectories overlaid in one figure (`plot_circ_fit({r1, r2, r3},
+tbl)`). The Methods section names every backend with one sentence
 per (using the templates above) and a final sentence explaining why
 each appears. The Results section reports the omnibus age-effect
 statistic from each backend on a single line so the reader can compare
@@ -391,9 +341,8 @@ To overlay multiple backends on the same data (sensitivity / robustness check):
 ```matlab
 r1 = circ_fit(tbl, fml, 'fitcirc_lme', 'Select', true, 'MaxOrder', 2);
 r2 = circ_fit(tbl, fml, 'brms',        'Select', true, 'MaxOrder', 2);
-r3 = circ_fit(tbl, fml, 'lme4',        'Select', true, 'MaxOrder', 2);
-r4 = circ_fit(tbl, fml, 'bpnreg',      'Select', true, 'MaxOrder', 2);
-plot_circ_fit({r1, r2, r3, r4}, tbl);
+r3 = circ_fit(tbl, fml, 'bpnreg',      'Select', true, 'MaxOrder', 2);
+plot_circ_fit({r1, r2, r3}, tbl);
 ```
 
 ## Tutorial: simulate, fit, recover
@@ -568,9 +517,9 @@ plot_circ_fit({r1, r2, r3}, T);
   no longer accepts a curvature term.
 - Add a covariate: simulate a binary `sex` factor with its own effect, append
   `+ sex` to the formula, refit, and inspect `result.Coefficients`.
-- Swap the backend to `'brms'`, `'lme4'`, or `'bpnreg'` (requires R + the
-  named package) and overlay the trajectories with
-  `plot_circ_fit({r1, r2, r3, r4}, T);`.
+- Swap the backend to `'brms'` or `'bpnreg'` (requires R + the named
+  package) and overlay the trajectories with
+  `plot_circ_fit({r1, r2, r3}, T);`.
 
 ## The uniform result schema
 
@@ -595,8 +544,8 @@ the highlights:
 - `Coefficients` (table `{Name, Estimate, SE, pValue}`, Wilkinson grammar)
 - `Beta`, `cov_b`, `ContrastIndex`, `CoefficientNames`, `NumCoefficients`
 
-The split is structural, not stylistic: `lme4` fits two sin/cos models behind
-`atan2` and `bpnreg` carries two posterior coefficient sets, so neither has a
+The split is structural, not stylistic: `bpnreg` carries two posterior
+coefficient sets (one per latent projected component), so it has no
 uniform per-coefficient table.
 
 `R2_circ` and `MAE_angular` are the only metrics directly comparable across
@@ -614,7 +563,6 @@ reporting templates live in [The four methods](#the-four-methods) and
 |-----------------|---------------------------------------|-------------------------------------------------------|------------------------------|--------------------------------|------------------------|-------------------------------------|
 | **fitcirc_lme** | von Mises GLMM, exact EM              | LRT                                                   | Single `(1|group)` intercept | Cluster-robust Wald (sandwich) | No                     | MATLAB only                         |
 | **brms**        | Bayesian vM-GLMM, `tan_half` link     | LOO (`elpd_diff > 2·se_diff`); LRT reported alongside | brms-side                    | Posterior (Stan)               | No                     | R + `brms` + `loo` + Stan toolchain |
-| **lme4**        | Sin/cos parallel LMEs                 | Combined sin+cos LRT                                  | lme4-side `(1|Subj_ID)`      | Wald + optional `bootMer` band | Yes                    | R + `lme4`                          |
 | **bpnreg**      | Bayesian projected-normal mixed model | WAIC                                                  | bpnreg-side                  | Posterior                      | Yes                    | R + `bpnreg`                        |
 
 Full side-by-side comparison: [`docs/backends.md`](docs/backends.md). The
@@ -668,11 +616,10 @@ circular_regression_toolbox/
 ├── read_circ_result.m         (R worker output → MATLAB result struct)
 ├── write_circ_contract.m      (MATLAB table → R worker input contract)
 ├── plot_circ_fit.m            (triple-line plotter)
-├── R/                         (R-side worker for brms/lme4/bpnreg)
+├── R/                         (R-side worker for brms/bpnreg)
 │   ├── circ_fit.R             (entry: Rscript circ_fit.R <work_dir> <backend>)
 │   ├── circ_fit_common.R      (shared helpers: unwrap, R²_circ, name remap, IO)
 │   ├── circ_fit_brms_impl.R
-│   ├── circ_fit_lme4_impl.R
 │   └── circ_fit_bpnreg_impl.R
 ├── utils/
 │   ├── build_model_formula.m  (Wilkinson formula builder)
@@ -680,7 +627,7 @@ circular_regression_toolbox/
 └── tests/                     (parity / recovery / pipeline tests)
 ```
 
-`R/` is the brms / lme4 / bpnreg backend. The MATLAB side writes a small
+`R/` is the brms / bpnreg backend. The MATLAB side writes a small
 contract (`data.csv`, `eval_grid.csv`, `meta.json`) into a working directory
 via `write_circ_contract`, shells out to `Rscript R/circ_fit.R <work_dir>
 <backend>`, and reads the per-backend output files
@@ -696,9 +643,8 @@ copied here so the toolbox is self-contained.
 
 - **MATLAB** R2020b or later (tables, `categorical`, anonymous functions with
   struct capture).
-- **R 4.x** *only if you want the brms / lme4 / bpnreg backends*. With:
+- **R 4.x** *only if you want the brms / bpnreg backends*. With:
   - `brms`, `loo`, `readr`, `jsonlite`  (brms)
-  - `lme4`                              (lme4)
   - `bpnreg`                            (bpnreg)
 - `Rscript` on the system `PATH`. Override via `opts.RscriptPath` if needed
   (default is `/usr/local/bin/Rscript`).
@@ -736,8 +682,7 @@ circ_fit_config('set', struct( ...
     'Backend',  'fitcirc_lme', ...      % default backend
     'MaxOrder', 2, ...                  % polynomial-order cap for selection
     'Select',   true, ...               % order selection on
-    'Chains',   4, 'Iter', 2000, ...    % brms sampler options
-    'Band',     true));                 % lme4 bootMer CI band
+    'Chains',   4, 'Iter', 2000));      % brms sampler options
 ```
 
 Options can also be passed inline as the last argument to `circ_fit`.
@@ -747,8 +692,8 @@ Options can also be passed inline as the last argument to `circ_fit`.
 From inside MATLAB, with the toolbox on the path:
 
 ```matlab
-test_circ_fit_schema({'fitcirc_lme','lme4'});                       % fast
-test_circ_fit_schema({'fitcirc_lme','brms','lme4','bpnreg'});       % full
+test_circ_fit_schema({'fitcirc_lme'});                              % fast
+test_circ_fit_schema({'fitcirc_lme','brms','bpnreg'});              % full
 sim_circ_compare();                                                 % overlay on a wrapping sim
 ```
 

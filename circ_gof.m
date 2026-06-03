@@ -13,7 +13,7 @@ function gof = circ_gof(y, yhat, n_par)
 %   R2_circ      1 - SSE_circ / SST_circ, using circular dispersion
 %                sum(1 - cos(resid)). The same formula the R backends use,
 %                so R2_circ is directly comparable across fitcirc_lme / brms
-%                / lme4 / bpnreg.
+%                / bpnreg.
 %   R2_adj       1 - (1-R2)*(n-1)/(n-n_par)   (NaN if n_par not given)
 %   MAE_angular  mean(|wrap(y - yhat)|)
 %

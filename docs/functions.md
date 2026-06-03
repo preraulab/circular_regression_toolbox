@@ -35,8 +35,8 @@ result = circ_fit(tbl, formula, backend, opts)
 |---|---|---|---|
 | `tbl` | `table` | Data table. Must contain the response column, the predictor column (default `Age`), and `Subj_ID`. May optionally contain `electrode` and `sex`. NaN rows are dropped per backend. | — |
 | `formula` | char | Wilkinson string, e.g. `'Phase ~ 1 + Age^2 + (1|Subj_ID)'`. The polynomial order in the formula is the **max** order when `opts.Select == true`, otherwise the single order to fit. Used to seed `opts.feature` / `opts.Order` if not provided directly. | — |
-| `backend` | char | One of `'fitcirc_lme'`, `'brms'`, `'lme4'`, `'bpnreg'`. Case-insensitive. | `'fitcirc_lme'` |
-| `opts` | struct | Options bag. Common fields: `Select`, `MaxOrder`, `Order`, `x_col`, `feature`, `categorical_varnames`, `xcol_categorical_interactions`, `Resample`, `B`, `KeepFrac`, `eval_ages`, `Chains`, `Iter`, `Warmup`, `Seed`, `AdaptDelta`, `Band`, `WorkDir`, `RscriptPath`, `BrmsFallback`. See the per-backend docs in `backends.md` for which fields each backend reads. | `struct()` |
+| `backend` | char | One of `'fitcirc_lme'`, `'brms'`, `'bpnreg'`. Case-insensitive. | `'fitcirc_lme'` |
+| `opts` | struct | Options bag. Common fields: `Select`, `MaxOrder`, `Order`, `x_col`, `feature`, `categorical_varnames`, `xcol_categorical_interactions`, `Resample`, `B`, `KeepFrac`, `eval_ages`, `Chains`, `Iter`, `Warmup`, `Seed`, `AdaptDelta`, `WorkDir`, `RscriptPath`, `BrmsFallback`. See the per-backend docs in `backends.md` for which fields each backend reads. | `struct()` |
 
 **Outputs.**
 
@@ -44,7 +44,7 @@ result = circ_fit(tbl, formula, backend, opts)
 |---|---|---|
 | `result` | struct | The uniform schema produced by `make_circ_result`. See `result_schema.md`. |
 
-**Side effects.** When the backend is an R backend (`brms`/`lme4`/`bpnreg`):
+**Side effects.** When the backend is an R backend (`brms`/`bpnreg`):
 - Creates a work directory (default `./results/circ_cache/<auto-tag>/`).
 - Writes `data.csv`, `eval_grid.csv`, `meta.json` to that directory.
 - Shells out to `Rscript R/circ_fit.R <work_dir> <backend>`.
@@ -408,7 +408,6 @@ circ_fit_config('reset')                   % restore defaults
 | `B` | `60` | Resample count. |
 | `KeepFrac` | `0.8` | Subject-keep fraction for `sub80`. |
 | `Chains`, `Iter`, `Warmup`, `Seed`, `AdaptDelta` | `4`, `2000`, `1000`, `1`, `0.95` | brms Stan sampler settings. |
-| `Band` | `true` | lme4 CI band via `bootMer`. |
 | `BrmsFallback` | `true` | If true, R-backend failures fall back to `fitcirc_lme`. |
 
 **Outputs.**
@@ -552,7 +551,7 @@ gof = circ_gof(y, yhat, n_par)
 **Notes.**
 - NaN rows in either $y$ or $\widehat y$ are dropped before scoring.
 - This formula matches the one used inside the R workers
-  (`circ_fit_common.R`), so `R2_circ` is comparable across all four backends.
+  (`circ_fit_common.R`), so `R2_circ` is comparable across all backends.
 
 **Example.**
 ```matlab
@@ -654,9 +653,9 @@ AgeEffect subfields `pValue, Method`.
 
 **Notes.**
 - The required vs. optional split is structural: backends without a single
-  $\beta$ vector (lme4, bpnreg) can't populate `Coefficients`/`Beta`/`cov_b`
-  uniformly, so those fields are optional and remain empty for those
-  backends.
+  $\beta$ vector (bpnreg) can't populate `Coefficients`/`Beta`/`cov_b`
+  uniformly, so those fields are optional and remain empty for that
+  backend.
 
 **Example.**
 ```matlab
@@ -698,7 +697,7 @@ result = read_circ_result(work_dir, backend, meta)
 | Name | Type | Meaning |
 |---|---|---|
 | `work_dir` | char | Directory containing the R worker's output files. |
-| `backend` | char | `'brms'`, `'lme4'`, or `'bpnreg'`. |
+| `backend` | char | `'brms'` or `'bpnreg'`. |
 | `meta` | struct | Metadata returned by `write_circ_contract` (formula, feature, theta_shift, x_col, …). |
 
 **Files read.**
@@ -756,14 +755,14 @@ meta = write_circ_contract(T, feature, order, results_dir, opts)
 | `opts.backend` | char | Echoed into `meta.backend`. | `''` |
 | `opts.select` | logical | Whether the R worker should sweep orders. | `true` |
 | `opts.max_order` | scalar | Max order in the sweep. | `order` |
-| `opts.chains` / `iter` / `warmup` / `seed` / `adapt_delta` / `band` | various | Sampler options echoed into `meta`. | brms defaults |
+| `opts.chains` / `iter` / `warmup` / `seed` / `adapt_delta` | various | Sampler options echoed into `meta`. | brms defaults |
 | `opts.dump` | char | Provenance path stored in `meta.dump`. | `''` |
 
 **Outputs.**
 
 | Name | Type | Meaning |
 |---|---|---|
-| `meta` | struct | Everything written to `meta.json`: `{formula, x_col, feature, order, has_electrode, has_sex, theta_shift, shift_kind, backend, select, max_order, chains, iter, warmup, seed, adapt_delta, band, dump}`. |
+| `meta` | struct | Everything written to `meta.json`: `{formula, x_col, feature, order, has_electrode, has_sex, theta_shift, shift_kind, backend, select, max_order, chains, iter, warmup, seed, adapt_delta, dump}`. |
 
 **Files written.**
 
@@ -795,7 +794,7 @@ trick — each curve drawn at $y$, $y + 2\pi$, $y - 2\pi$ — so the $\pm\pi$
 seam never produces a visible jump. Overlays multiple backends if given a
 cell array.
 
-**When to use.** Whenever you want to visualize a fit. The "compare four
+**When to use.** Whenever you want to visualize a fit. The "compare
 backends on the same axes" pattern is the canonical use.
 
 **Signature.**
@@ -839,9 +838,9 @@ ax = plot_circ_fit({r1, r2, ...}, tbl, opts)
 
 **Example.**
 ```matlab
-ax = plot_circ_fit({r1, r2, r3, r4}, tbl, ...
+ax = plot_circ_fit({r1, r2, r3}, tbl, ...
     struct('feature','Phase','x_col','Age','plot_CI',true));
-title(ax, 'Phase ~ Age — four-backend overlay');
+title(ax, 'Phase ~ Age — backend overlay');
 ```
 
 ---
@@ -857,7 +856,7 @@ Small, stable helpers copied here so the toolbox is self-contained.
 
 ## Appendix B: R/
 
-R-side worker for the brms / lme4 / bpnreg backends. Invoked from MATLAB as
+R-side worker for the brms / bpnreg backends. Invoked from MATLAB as
 `Rscript R/circ_fit.R <work_dir> <backend>`.
 
 | File | Role |
@@ -865,7 +864,6 @@ R-side worker for the brms / lme4 / bpnreg backends. Invoked from MATLAB as
 | `R/circ_fit.R` | Entry point: read `data.csv` / `eval_grid.csv` / `meta.json`, dispatch to the per-backend impl, finalize and write outputs. |
 | `R/circ_fit_common.R` | Shared helpers: `wrap_pi`, unwrap, $R^2_\text{circ}$, the Wilkinson-name remap that puts each backend's native coefficient names back into `(Intercept)` / `Age^k` / `Age^k:cat` form, IO helpers. |
 | `R/circ_fit_brms_impl.R` | brms Stan vM-GLMM, `tan_half` link, LOO order selection (step up while `elpd_diff > 2 * se_diff`) plus a chi-square LRT reported alongside. Only backend that writes per-coefficient files (`<backend>_coefs.csv`, `<backend>_cov_b.csv`). |
-| `R/circ_fit_lme4_impl.R` | Parallel sin/cos `lmer` fits with combined-LL LRT for order selection and the age-effect test. No single-$\beta$ vector. |
 | `R/circ_fit_bpnreg_impl.R` | `bpnreg::bpnme` projected-normal mixed model with WAIC for order selection. No single-$\beta$ vector. |
 
 ## Appendix C: tests <a id="tests"></a>
@@ -876,7 +874,7 @@ read the file's header for the full picture.
 | Test file | Covers |
 |---|---|
 | `tests/test_circ_fit_schema.m` | Schema parity + wiring smoke test: every backend produces the required-tier fields, `AgeEffect.pValue` populated, `Trajectory` unwrapped, downstream `get_model_fit` wiring works. |
-| `tests/sim_circ_compare.m` | Fits and overlays all four backends on a noisy synthetic wrapping-trajectory dataset. (Demo, not a strict assertion test.) |
+| `tests/sim_circ_compare.m` | Fits and overlays all backends on a noisy synthetic wrapping-trajectory dataset. (Demo, not a strict assertion test.) |
 | `tests/test_fitcirc_lme_autoshift.m` | Round-trip and seam-crossing test for `AutoShift`: predictions and CI half-widths match between shifted and unshifted fits. |
 | `tests/test_fitcirc_lme_recovery.m` | Parameter recovery on simulated data: $\beta$, $\kappa$, $\kappa_\phi$ recovered to tolerance. |
 | `tests/test_joint_test.m` | Wald block-test sanity check: `x_main` joint Wald is true-positive on signal, true-null on shuffled covariate. |

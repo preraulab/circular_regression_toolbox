@@ -9,9 +9,9 @@ There are two tiers:
 - **Required tier** — present and non-empty on every backend.
 - **Optional tier** — populated only when the backend exposes a single
   linear-predictor coefficient vector (currently `fitcirc_lme` and `brms`).
-  For `lme4` and `bpnreg`, optional-tier fields are filled with the
-  defaults from `make_circ_result` (empty `[]` / `{}` / `NaN` / empty
-  struct) and should be ignored.
+  For `bpnreg`, optional-tier fields are filled with the defaults from
+  `make_circ_result` (empty `[]` / `{}` / `NaN` / empty struct) and
+  should be ignored.
 
 ---
 
@@ -19,7 +19,7 @@ There are two tiers:
 
 | Field | Type | Units | Populated by | Meaning |
 |---|---|---|---|---|
-| `Backend` | char | — | all | `'fitcirc_lme'`, `'brms'`, `'lme4'`, or `'bpnreg'`. |
+| `Backend` | char | — | all | `'fitcirc_lme'`, `'brms'`, or `'bpnreg'`. |
 | `Formula` | char | — | all | Wilkinson formula actually fit. For `fitcirc_lme` this is the orthogonal-polynomial form (`Age_op1 + Age_op2 + ...`); for the R backends it is the polynomial form (`Age^k`). |
 | `ResponseName` | char | — | all | Name of the response column in the input table. |
 | `Order` | scalar | — | all | Selected (or fixed) polynomial order in the predictor. |
@@ -29,7 +29,7 @@ There are two tiers:
 | `AgeEffect` | struct | — | all | Single omnibus "any age effect" test. See subfields below. |
 | `OrderTable` | `table` | — | all | Per-order summary used by the selection rule. Columns: `order` (scalar), `n_par` (scalar), `LogLikelihood` (scalar), `R2_circ` (scalar), `criterion_value` (scalar; LRT $p$ / LOO $\Delta\text{elpd}$ / WAIC / etc.), `selected` (logical; exactly one row is `true`). |
 | `SelectedOrder` | scalar | — | all | The order in `OrderTable` flagged `selected`. |
-| `SelectCriterion` | char | — | all | `'LRT'` (fitcirc_lme), `'LOO'` (brms), `'LRT-sincos'` (lme4), `'WAIC'` (bpnreg), or `'none'`. |
+| `SelectCriterion` | char | — | all | `'LRT'` (fitcirc_lme), `'LOO'` (brms), `'WAIC'` (bpnreg), or `'none'`. |
 | `Diagnostics` | struct | — | all | Backend-specific. See subsection below. |
 | `Converged` | logical | — | all | Whether the fitter converged. For Bayesian backends, combines diagnostic checks (`rhat_max < 1.05`, `divergent == 0`, etc.). |
 
@@ -40,7 +40,7 @@ There are two tiers:
 | `R2_circ` | scalar | — | $1 - \text{SSE}_\text{circ} / \text{SST}_\text{circ}$ with circular dispersion $\sum(1 - \cos(\text{resid}))$. **Comparable across backends.** |
 | `R2_adj` | scalar | — | $1 - (1 - R^2)(n-1)/(n - n_\text{par})$ (only populated by `circ_fit_fitcirc`; absent for R backends). |
 | `MAE_angular` | scalar | radians | $\overline{\lvert\text{wrap}(y - \widehat y)\rvert}$. **Comparable across backends.** |
-| `LogLikelihood` | scalar | log-units | Exact marginal LL (fitcirc_lme) / posterior log-density at the mean (brms) / sum of sin- and cos-component LLs (lme4) / marginal LL approximation (bpnreg). **Within-backend only** — likelihood families differ. |
+| `LogLikelihood` | scalar | log-units | Exact marginal LL (fitcirc_lme) / posterior log-density at the mean (brms) / marginal LL approximation (bpnreg). **Within-backend only** — likelihood families differ. |
 | `AIC` | scalar | — | $-2 \text{LL} + 2k$. `NaN` for Bayesian backends if not natively computed. |
 | `BIC` | scalar | — | $-2 \text{LL} + k\log n$. `NaN` for Bayesian backends if not natively computed. |
 
@@ -51,7 +51,7 @@ There are two tiers:
 | `pValue` | scalar | — | Single $p$ for "all age-involving terms simultaneously zero". For Bayesian backends this is interpreted as either a posterior tail probability (brms) or a WAIC-derived analog (bpnreg). |
 | `stat` | scalar | — | Test statistic ($F$ for fitcirc_lme Wald; $\chi^2$ for LRT; $\Delta$WAIC for bpnreg). May be `NaN` when not applicable. |
 | `df` | scalar | — | Numerator degrees of freedom. May be `NaN` for Bayesian backends. |
-| `Method` | char | — | `'Wald'` (fitcirc_lme), `'LRT'` / `'LRT-sincos'` (lme4), `'LOO'` / `'Bayes'` (brms), `'bpnreg'` (bpnreg). |
+| `Method` | char | — | `'Wald'` (fitcirc_lme), `'LOO'` / `'Bayes'` (brms), `'bpnreg'` (bpnreg). |
 
 ### `Diagnostics`
 
@@ -61,16 +61,15 @@ Schema-free struct. Common subfields:
 |---|---|
 | `fitcirc_lme` | `ConvergedIn` (EM iterations), `Resample` (`'none'`/`'cboot'`/`'sub80'`), `Kappa`, `KappaPhi`. |
 | `brms` | `rhat_max`, `divergent`, plus brms-native diagnostics passed through `<backend>_stats.json`. |
-| `lme4` | lme4-native convergence flags. |
 | `bpnreg` | bpnreg-native convergence/sampler diagnostics. |
 
 ---
 
 ## Optional tier (per-coefficient inference)
 
-Populated only by `fitcirc_lme` and `brms`. For `lme4` and `bpnreg`, these
-fields are filled with the defaults from `make_circ_result` (empty `[]` /
-`{}` / `NaN` / empty struct).
+Populated only by `fitcirc_lme` and `brms`. For `bpnreg`, these fields
+are filled with the defaults from `make_circ_result` (empty `[]` / `{}` /
+`NaN` / empty struct).
 
 | Field | Type | Units | Populated by | Meaning |
 |---|---|---|---|---|
@@ -83,7 +82,7 @@ fields are filled with the defaults from `make_circ_result` (empty `[]` /
 | `NumObservations` | scalar | — | all (when known) | Total observations used in the fit (after NaN drop). |
 | `NumSubjects` | scalar | — | all (when known) | Number of distinct subject groupings used. |
 | `DFE` | scalar | — | fitcirc_lme, brms | Error degrees of freedom — $n_\text{subj} - 1$ for both. |
-| `WorkDir` | char | — | brms, lme4, bpnreg | Directory holding the R worker IO contract; useful for caching / debugging. Empty for `fitcirc_lme`. |
+| `WorkDir` | char | — | brms, bpnreg | Directory holding the R worker IO contract; useful for caching / debugging. Empty for `fitcirc_lme`. |
 | `Raw` | object | — | fitcirc_lme | The native fitter handle (a `fitcirc_lme` instance). Empty for R backends — re-instantiating their native objects from a serialized form would require the full R worker process and is out of scope. |
 
 ---

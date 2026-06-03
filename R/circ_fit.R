@@ -2,7 +2,7 @@
 #
 #   Rscript circ_fit.R <work_dir> <backend>
 #
-# backend in {brms, lme4, bpnreg}. Reads data.csv / eval_grid.csv / meta.json
+# backend in {brms, bpnreg}. Reads data.csv / eval_grid.csv / meta.json
 # from work_dir, dispatches to the per-backend impl (which does its own
 # polynomial-order selection), and writes the unified output contract:
 #   <backend>_predictions.csv  (Age, electrode, sex, mean, lo, hi; unwrapped)

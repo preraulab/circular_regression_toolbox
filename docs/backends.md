@@ -1,6 +1,6 @@
 # Backends side-by-side
 
-The toolbox exposes four estimators behind one signature. This page lays out
+The toolbox exposes three estimators behind one signature. This page lays out
 what each fits, what random-effects structure each supports, how uncertainty
 is computed, what the speed and dependency cost is, and which fields of the
 unified result struct each populates.
@@ -116,47 +116,15 @@ mean that wraps a full revolution. `cores = 1` slows sampling.
 
 ---
 
-## lme4 — sin/cos parallel LMEs
-
-> Full technical reference: [`docs/methods/lme4.md`](methods/lme4.md).
-
-**Model.** Two parallel Gaussian LMMs: one on $\sin y$, one on $\cos y$.
-Reconstructed angle is $\text{atan2}(\widehat{\sin y},\ \widehat{\cos y})$.
-This is the frequentist projected-Gaussian approach.
-
-**Fitter.** `lme4::lmer`, REML disabled (`REML = FALSE`).
-
-**Random effects supported.** Anything `lme4` supports. The MATLAB
-dispatcher writes `(1|Subj_ID)` by default.
-
-**Uncertainty.** Combined-LL likelihood-ratio test for the age-effect block.
-`Trajectory` band, when requested (`opts.Band = true`), comes from `bootMer`
-parametric bootstrap; otherwise `lo == hi == mean`.
-
-**Order selection (when `Select` is on).** Combined sin+cos LRT, treating
-the LL as the sum of the two component LLs and the parameter count as the
-sum of fixed-effects parameters. `SelectCriterion` reads `'LRT-sincos'`.
-
-**Speed.** Fast (LMM, no MCMC). `bootMer` band can be slow when enabled.
-
-**Dependencies.** R, `lme4`.
-
-**Options used.** `Select`, `MaxOrder`, `Order`, `eval_ages`, `Band`.
-
-**Known limitations.** Trajectory mean *can* wrap a full revolution — this
-is the right choice when your data does. No single $\beta$ vector
-(two coefficient sets behind `atan2`), so the per-coefficient tier of the
-result schema is **not** populated.
-
----
-
 ## bpnreg — Bayesian projected-normal mixed model
 
 > Full technical reference: [`docs/methods/bpnreg.md`](methods/bpnreg.md).
 
 **Model.** `bpnreg::bpnme` projected-normal mixed model with a polynomial
-in raw Age. Like lme4's sin/cos but Bayesian and modeling the projected
-bivariate normal directly.
+in raw Age. A Bayesian fit that models the projected bivariate normal
+directly: the observed angle is the angle of a latent 2-D Gaussian
+projected onto the unit circle, and the two components share a covariance
+structure estimated from the data.
 
 **Fitter.** `bpnreg::bpnme` (Gibbs sampler internal to the package).
 
@@ -178,11 +146,12 @@ classical test.
 **Options used.** `Select`, `MaxOrder`, `Order`, `eval_ages`, plus shared
 sampler options where applicable.
 
-**Known limitations.** Like lme4: trajectory mean *can* wrap a revolution
-(this is fine). Two posterior coefficient sets ($\beta^{(1)}, \beta^{(2)}$
-for the two projected components), so no single $\beta$ vector — the
-per-coefficient tier is **not** populated. WAIC-based age-effect $p$ is not
-a classical hypothesis test.
+**Known limitations.** Two posterior coefficient sets ($\beta^{(1)},
+\beta^{(2)}$ for the two projected components), so no single $\beta$
+vector — the per-coefficient tier is **not** populated. Trajectory mean
+*can* wrap a revolution (this is fine; the latent Gaussian carries no
+wrap-around constraint). WAIC-based age-effect $p$ is not a classical
+hypothesis test.
 
 ---
 
@@ -191,35 +160,35 @@ a classical hypothesis test.
 Which result-struct fields each backend fills.
 $\checkmark$ = populated, $\circ$ = empty / NaN by design.
 
-| Field                  | fitcirc_lme | brms | lme4 | bpnreg |
-|------------------------|:-----------:|:----:|:----:|:------:|
-| `Backend`              | ✓ | ✓ | ✓ | ✓ |
-| `Formula`              | ✓ | ✓ | ✓ | ✓ |
-| `ResponseName`         | ✓ | ✓ | ✓ | ✓ |
-| `Order`                | ✓ | ✓ | ✓ | ✓ |
-| `ThetaShift`           | ✓ | ✓ | ✓ | ✓ |
-| `Trajectory`           | ✓ | ✓ | ✓ | ✓ |
-| `GOF.R2_circ`          | ✓ | ✓ | ✓ | ✓ |
-| `GOF.MAE_angular`      | ✓ | ✓ | ✓ | ✓ |
-| `GOF.LogLikelihood`    | ✓ | ✓ | ✓ | ✓ |
-| `GOF.AIC` / `BIC`      | ✓ | ✓ (may be NaN) | ✓ | ✓ (may be NaN) |
-| `AgeEffect.pValue`     | ✓ (Wald) | ✓ (Bayes / LRT) | ✓ (LRT-sincos) | ✓ (WAIC-derived) |
-| `OrderTable`           | ✓ | ✓ | ✓ | ✓ |
-| `SelectedOrder`        | ✓ | ✓ | ✓ | ✓ |
-| `SelectCriterion`      | `'LRT'` | `'LOO'` | `'LRT-sincos'` | `'WAIC'` |
-| `Diagnostics`          | ✓ (Kappa, KappaPhi, ConvergedIn) | ✓ (rhat_max, divergent) | ✓ | ✓ |
-| `Converged`            | ✓ | ✓ | ✓ | ✓ |
-| `Coefficients`         | ✓ | ✓ | ○ | ○ |
-| `Beta`                 | ✓ | ✓ | ○ | ○ |
-| `cov_b`                | ✓ | ✓ | ○ | ○ |
-| `ContrastIndex`        | ✓ | ✓ | ○ | ○ |
-| `CoefficientNames`     | ✓ | ✓ | ○ | ○ |
-| `NumCoefficients`      | ✓ | ✓ | ○ | ○ |
-| `NumObservations`      | ✓ | ✓ | ✓ | ✓ |
-| `NumSubjects`          | ✓ | ✓ | ✓ | ✓ |
-| `DFE`                  | ✓ | ✓ ($n_\text{subj}-1$) | ○ | ○ |
-| `WorkDir`              | ○ | ✓ | ✓ | ✓ |
-| `Raw`                  | ✓ (fitcirc_lme handle) | ○ | ○ | ○ |
+| Field                  | fitcirc_lme | brms | bpnreg |
+|------------------------|:-----------:|:----:|:------:|
+| `Backend`              | ✓ | ✓ | ✓ |
+| `Formula`              | ✓ | ✓ | ✓ |
+| `ResponseName`         | ✓ | ✓ | ✓ |
+| `Order`                | ✓ | ✓ | ✓ |
+| `ThetaShift`           | ✓ | ✓ | ✓ |
+| `Trajectory`           | ✓ | ✓ | ✓ |
+| `GOF.R2_circ`          | ✓ | ✓ | ✓ |
+| `GOF.MAE_angular`      | ✓ | ✓ | ✓ |
+| `GOF.LogLikelihood`    | ✓ | ✓ | ✓ |
+| `GOF.AIC` / `BIC`      | ✓ | ✓ (may be NaN) | ✓ (may be NaN) |
+| `AgeEffect.pValue`     | ✓ (Wald) | ✓ (Bayes / LRT) | ✓ (WAIC-derived) |
+| `OrderTable`           | ✓ | ✓ | ✓ |
+| `SelectedOrder`        | ✓ | ✓ | ✓ |
+| `SelectCriterion`      | `'LRT'` | `'LOO'` | `'WAIC'` |
+| `Diagnostics`          | ✓ (Kappa, KappaPhi, ConvergedIn) | ✓ (rhat_max, divergent) | ✓ |
+| `Converged`            | ✓ | ✓ | ✓ |
+| `Coefficients`         | ✓ | ✓ | ○ |
+| `Beta`                 | ✓ | ✓ | ○ |
+| `cov_b`                | ✓ | ✓ | ○ |
+| `ContrastIndex`        | ✓ | ✓ | ○ |
+| `CoefficientNames`     | ✓ | ✓ | ○ |
+| `NumCoefficients`      | ✓ | ✓ | ○ |
+| `NumObservations`      | ✓ | ✓ | ✓ |
+| `NumSubjects`          | ✓ | ✓ | ✓ |
+| `DFE`                  | ✓ | ✓ ($n_\text{subj}-1$) | ○ |
+| `WorkDir`              | ○ | ✓ | ✓ |
+| `Raw`                  | ✓ (fitcirc_lme handle) | ○ | ○ |
 
 `R2_circ` and `MAE_angular` are the only metrics directly comparable across
 backends — they're computed identically on the angle scale. `LL` / `AIC` /
@@ -237,10 +206,10 @@ backend only.
    - No → skip to step 2.
 
 2. **Does your trajectory wrap a full revolution?**
-   - Yes → use `lme4` (frequentist) or `bpnreg` (Bayesian). Both represent
-     the mean as two components that can sweep through $2\pi$. Neither
-     populates the per-coefficient tier, but `Trajectory`, `GOF`, and
-     `AgeEffect` are all there.
+   - Yes → use `bpnreg`. The projected-normal latent representation
+     carries no wrap-around constraint, so the reconstructed mean can
+     sweep through $2\pi$. The per-coefficient tier is not populated,
+     but `Trajectory`, `GOF`, and `AgeEffect` are all there.
    - No → step 3.
 
 3. **Do you want Bayesian inference plus an LRT cross-check?**
@@ -249,6 +218,6 @@ backend only.
      `fitcirc_lme`.
    - No → use `fitcirc_lme`.
 
-4. **Robustness panel for a paper.** Run all four with the same `opts`
-   and `plot_circ_fit({r1,r2,r3,r4}, tbl)`. `R2_circ` and `MAE_angular`
+4. **Robustness panel for a paper.** Run all backends with the same `opts`
+   and `plot_circ_fit({r1,r2,r3}, tbl)`. `R2_circ` and `MAE_angular`
    are the directly comparable metrics across backends.

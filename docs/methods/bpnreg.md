@@ -9,11 +9,11 @@
 This page is the full technical reference for the `bpnreg` backend.
 Unlike the von Mises backends, an angle here is modeled as the **angle
 of a bivariate Gaussian latent vector projected onto the unit circle**.
-That representation can sweep a full revolution (like `lme4`), and
-unlike `lme4` it is a proper joint likelihood model. The level of
+That representation can sweep a full revolution, and the two latent
+components share an estimated covariance, so the joint likelihood is
+proper (rather than a decoupled pair of marginals). The level of
 detail is what a statistician needs to know exactly what is being
-computed and how the projection structure differs from the two-stage
-sin/cos approach.
+computed.
 
 ---
 
@@ -57,12 +57,11 @@ $$
 \Sigma_\varepsilon  =  \begin{pmatrix} \sigma_{\varepsilon,11}^2 & \sigma_{\varepsilon,12} \\ \sigma_{\varepsilon,12} & \sigma_{\varepsilon,22}^2 \end{pmatrix}
 $$
 
-are estimated freely. **Note the off-diagonal terms.** This is the key
-structural difference from [`lme4`](lme4.md): the two latent components
-have an estimated covariance, so the projected angle's noise structure
-is a proper 2-D model rather than two decoupled 1-D models. The two
-components of the random intercept are likewise allowed to covary
-through $\sigma_{\phi,12}$.
+are estimated freely. **Note the off-diagonal terms.** The two latent
+components have an estimated covariance, so the projected angle's noise
+structure is a proper 2-D model rather than two decoupled 1-D models.
+The two components of the random intercept are likewise allowed to
+covary through $\sigma_{\phi,12}$.
 
 **Identifiability.** The projection $y = \text{atan2}(r^{(2)}, r^{(1)})$ is
 invariant under positive scaling of $\mathbf{r}$, so the model is
@@ -198,9 +197,10 @@ $$
 \hat\mu^\star  =  \text{median}_{s = 1, \ldots, S} \text{atan2}\bigl(X^\star\beta^{(2,s)},\ X^\star\beta^{(1,s)}\bigr).
 $$
 
-The 95% credible band is the 2.5% / 97.5% quantiles across $s$, with
-the same wrap-handling logic as the `lme4` bootstrap (sliding $\pi$-wide
-window before quantiling).
+The 95% credible band is the 2.5% / 97.5% quantiles across $s$, taken
+with a sliding $\pi$-wide window over the angle so the quantiles are
+computed on a contiguous (unwrapped) representation rather than across
+the $\pm\pi$ seam.
 
 ### 5.3 Omnibus age-effect test
 
@@ -244,28 +244,7 @@ Marginal only; conditional analogue not implemented for this backend.
 
 ---
 
-## 7. When to prefer `bpnreg` over `lme4`
-
-Both backends share the "full-revolution" capability, but they differ
-in two important ways:
-
-| Aspect | `lme4` | `bpnreg` |
-|---|---|---|
-| Joint likelihood | No (two-stage decoupled) | Yes (proper joint Gaussian on latent vector) |
-| Noise covariance | Diagonal (forced) | Free 2x2 |
-| Inference | Frequentist (Wald, bootstrap) | Bayesian (posterior) |
-| Joint omnibus test | Bonferroni-union LRT (conservative) | WAIC-difference probability (not a p) |
-| Fit speed | Seconds | Minutes |
-
-Prefer `bpnreg` when the sin and cos noises are correlated (which the
-true projection mechanism implies), when posterior uncertainty matters,
-or when the angular response visibly clusters near a preferred axis
-(asymmetric noise). Prefer `lme4` for fast iteration and frequentist
-familiarity.
-
----
-
-## 8. Numerical and computational notes
+## 7. Numerical and computational notes
 
 - **Per-fit cost.** A single `bpnreg::bpnme` run on lifespan-cohort data
   (n ~ 1500, m ~ 800) takes 5 – 15 minutes wall-clock with the default

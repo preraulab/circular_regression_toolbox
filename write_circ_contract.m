@@ -17,10 +17,10 @@ function meta = write_circ_contract(T, feature, order, results_dir, opts)
 %                   | 'minvar'  (circ_shift_min_var; legacy harness)
 %     .x_col        predictor name (default 'Age')
 %     .eval_ages    prediction grid ages (default 7:80)
-%     .backend      'brms'|'lme4'|'bpnreg'|'' (written to meta)
+%     .backend      'brms'|'bpnreg'|'' (written to meta)
 %     .select       logical (internal order selection); default true
 %     .max_order    written to meta as max_order (default = order)
-%     .chains/.iter/.warmup/.seed/.adapt_delta/.band   sampler opts -> meta
+%     .chains/.iter/.warmup/.seed/.adapt_delta   sampler opts -> meta
 %     .dump         provenance path (default '')
 %
 % OUTPUT
@@ -114,7 +114,6 @@ meta.iter          = getopt(opts, 'iter', 2000);
 meta.warmup        = getopt(opts, 'warmup', 1000);
 meta.seed          = getopt(opts, 'seed', 1);
 meta.adapt_delta   = getopt(opts, 'adapt_delta', 0.95);
-meta.band          = double(getopt(opts, 'band', true));
 meta.dump          = getopt(opts, 'dump', '');
 
 fid = fopen(fullfile(results_dir, 'meta.json'), 'w');
