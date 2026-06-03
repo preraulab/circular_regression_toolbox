@@ -375,7 +375,7 @@ result.AgeEffect.pValue           % omnibus joint test: all age-involving terms 
 result.GOF.R2_circ_marginal       % fixed effects only
 result.GOF.R2_circ_conditional    % fixed effects + subject random intercept
 result.Trajectory                 % evaluation-grid table (Age × electrode × {mean, lo, hi})
-plot_circ_fit(result, tbl);       % triple-line at ±2π so the seam never jumps
+plot(result, tbl);                % triple-line at ±2π so the seam never jumps
 ```
 
 Options are supplied as Name-Value pairs (the form MATLAB's `fitlme` and
@@ -516,12 +516,19 @@ parameter (`κ_φ` for subjects, `κ` for residuals); the ICC is then
 ### 5. Plot the fit
 
 ```matlab
-plot_circ_fit(result, T);
+plot(result, T);
 ```
 
-The plotter draws the trajectory mean and CI band against the raw points.
-The angular axis is repeated above and below at ±2π so the curve never
-"jumps" at the ±π seam — a visualization trick documented in `plot_circ_fit.m`.
+`plot(result, T)` dispatches to `circ_result.plot`, which in turn calls
+the toolbox plotter (`plot_circ_fit`). The trajectory mean and CI band
+are drawn against the raw points. The angular axis is repeated above
+and below at ±2π so the curve never "jumps" at the ±π seam — a
+visualization trick documented in `plot_circ_fit.m`. For overlaying
+multiple backends, call the standalone function:
+
+```matlab
+plot_circ_fit({r1, r2, r3}, T);
+```
 
 ### 6. Things to try
 

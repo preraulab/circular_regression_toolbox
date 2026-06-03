@@ -104,6 +104,28 @@ methods
     %FIELDNAMES  List the schema fields (same as properties).
     out = properties(obj);
     end
+
+    function ax = plot(obj, tbl, opts)
+    %PLOT  Plot the fitted trajectory and CI band over the raw data.
+    %
+    %   plot(r)              draw the trajectory on a fresh figure with
+    %                        no scatter overlay
+    %   plot(r, tbl)         overlay the table's raw x/y scatter
+    %                        behind the trajectory
+    %   plot(r, tbl, opts)   pass-through options for plot_circ_fit
+    %                        (e.g. opts.ax, opts.plot_CI, opts.colors)
+    %
+    % Dispatches to plot_circ_fit (the toolbox plotter) with one
+    % result. For overlaying multiple backends, call the standalone
+    % function: plot_circ_fit({r1, r2, ...}, tbl).
+    if nargin < 2, tbl = table(); end
+    if nargin < 3, opts = struct(); end
+    if nargout > 0
+        ax = plot_circ_fit(obj, tbl, opts);
+    else
+        plot_circ_fit(obj, tbl, opts);
+    end
+    end
 end
 
 methods (Access = protected)
@@ -199,7 +221,15 @@ end
 
 
 function s = fmt_pvalue(p)
-if p < 1e-4
+if isnan(p)
+    s = 'NaN';
+elseif p < eps
+    % Exact zero on the float scale -- report as the smallest p-value
+    % MATLAB doubles can represent rather than as the misleading "0".
+    s = '< 1e-308';
+elseif p < 1e-16
+    s = sprintf('< %.0e', 1e-16);
+elseif p < 1e-4
     s = sprintf('%.1e', p);
 elseif p < 1e-3
     s = sprintf('%.4f', p);
@@ -220,6 +250,13 @@ est   = get('Estimate', nan(N,1));
 se    = get('SE',       nan(N,1));
 tval  = get('tStat',    nan(N,1));
 pval  = get('pValue',   nan(N,1));
+
+% circ_fit_fitcirc's result keeps {Name, Estimate, SE, pValue} and
+% drops tStat to match the uniform cross-backend schema. Compute
+% tStat as Estimate / SE wherever the table did not supply it so the
+% display block reports a t-like statistic for each coefficient.
+missing_t = isnan(tval) & isfinite(se) & se > 0;
+tval(missing_t) = est(missing_t) ./ se(missing_t);
 if ismember('Name', names)
     nm = string(T.Name);
 elseif ismember('Row', names)

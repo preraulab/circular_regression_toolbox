@@ -95,6 +95,12 @@ result = circ_fit(T, ...
 %% 3. Read the result against truth
 %% ====================================================================
 
+% Type the result at the prompt (or call disp on it) to get the
+% fitlme-style model summary. The circ_result object holds the full
+% schema (Coefficients, GOF, AgeEffect, Trajectory, ...) and prints
+% the headline numbers in a paper-ready layout.
+disp(result);
+
 fprintf('\n--- Top-line answers ---\n');
 fprintf('Selected polynomial order: %d   (truth = 2)\n', ...
         result.SelectedOrder);
@@ -152,11 +158,15 @@ fprintf('the subject random intercept on top of what Age explains.\n');
 %% 5. Plot the fit
 %% ====================================================================
 %
-% plot_circ_fit draws the trajectory mean and CI band. The angular axis
-% is repeated above and below at +-2*pi so the curve never "jumps" at
-% the seam (a visualization trick documented in plot_circ_fit.m).
+% plot(result, T) dispatches to circ_result.plot, which in turn calls
+% the toolbox plotter (plot_circ_fit). The angular axis is repeated
+% above and below at +-2*pi so the curve never "jumps" at the seam
+% (a visualization trick documented in plot_circ_fit.m).
+%
+% For overlaying multiple backends, call the standalone function:
+%   plot_circ_fit({r1, r2, r3}, T)
 
-plot_circ_fit(result, T);
+plot(result, T);
 title(sprintf(['Tutorial fit: vM-GLMM (kappa = %.0f, kappa_phi = %.0f, ', ...
                'n = %d)'], kappa_eps, kappa_phi, n_obs));
 
