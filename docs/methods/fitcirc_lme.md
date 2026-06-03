@@ -93,11 +93,7 @@ $$
 with
 
 $$
-\boxed{ 
-K_{i,\text{post}} = \sqrt{(\kappa C_i + \kappa_\phi)^2 + (\kappa S_i)^2},
-\qquad
-\mu_{i,\text{post}} = \text{atan2}\bigl(\kappa S_i,\ \kappa C_i + \kappa_\phi\bigr).
- }
+K_{i,\text{post}} = \sqrt{(\kappa C_i + \kappa_\phi)^2 + (\kappa S_i)^2}, \qquad \mu_{i,\text{post}} = \text{atan2}(\kappa S_i,\ \kappa C_i + \kappa_\phi).
 $$
 
 **Why this matters.** The M-step does not need the full posterior over
@@ -234,13 +230,7 @@ iterations (default $500$).
 After integrating out $\phi_i$ exactly,
 
 $$
-\boxed{ 
-\log p(y_i \mid \beta, \kappa, \kappa_\phi)
- = 
-\log I_0(K_{i,\text{post}})
- -  n_i \log\bigl(2\pi  I_0(\kappa)\bigr)
- -  \log I_0(\kappa_\phi).
- }
+\log p(y_i \mid \beta, \kappa, \kappa_\phi) = \log I_0(K_{i,\text{post}}) - n_i \log(2\pi\, I_0(\kappa)) - \log I_0(\kappa_\phi).
 $$
 
 Sum over $i$ for the cohort-level marginal log-likelihood. The reported
@@ -395,9 +385,7 @@ $$
 and the conditional $R^2_\text{circ}$ is
 
 $$
-\boxed{ 
-R^2_\text{circ,c}  =  R^2_\text{circ,m}  +  \text{ICC} \bigl(1 - R^2_\text{circ,m}\bigr).
- }
+R^2_\text{circ,c} = R^2_\text{circ,m} + \text{ICC} \cdot (1 - R^2_\text{circ,m}).
 $$
 
 **Limit case.** When $\hat\kappa_\phi \to \infty$, the EM is signaling
@@ -450,7 +438,7 @@ prior on $\kappa_\phi$ does not enter either expression.
 |---|---|---|
 | Subject offsets are von Mises (not wrapped Normal) | Mild; the two families are close when $\kappa_\phi$ is moderate. Matters when $\kappa_\phi \to 0$ (offsets nearly uniform), in which case the EM degenerates to a fixed-effects-only fit and the conditional $R^2$ collapses to the marginal. | Reported automatically: $V_\alpha = 1$ when $\hat\kappa_\phi = 0$, $\text{ICC} = 1/(1 + V_\varepsilon)$. |
 | Single $(1\|group)$ random intercept; no random slopes | When the subject random structure is more complex (e.g. random electrode-by-Age slopes), the residual concentration $\hat\kappa$ absorbs the unmodelled variance and the sandwich SE may underestimate. | Documented limitation. Switch to a Bayesian backend (`brms`) for richer random-effects structures. |
-| Trajectory fits within one revolution of the response | The von Mises mean is a single circular point. A trajectory that genuinely sweeps more than $2\pi$ across the predictor range cannot be represented. | Documented limitation. Switch to `lme4` or `bpnreg`, both of which represent the mean via a two-component projection that can sweep all of $2\pi$. |
+| Trajectory fits within one revolution of the response | The von Mises mean is a single circular point. A trajectory that genuinely sweeps more than $2\pi$ across the predictor range cannot be represented. | Documented limitation. Switch to `bpnreg`, which represents the mean via a projection of a 2-D latent Gaussian and so can sweep all of $2\pi$. |
 | Clusters are large enough that the empirical cluster-score covariance converges | Sandwich SEs under-cover at $n_i \in \{1, 2\}$. | Documented; small-cluster regimes should use the resample-based options (`Resample = 'cboot'` or `'sub80'`). |
 | The polynomial order is reasonably bounded | Higher orders extrapolate wildly at the edges of the predictor range. | Default `MaxOrder = 2`; raise consciously. |
 

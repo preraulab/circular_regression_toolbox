@@ -42,7 +42,6 @@ function result = circ_fit(tbl, formula, backend, varargin)
 %              'fitcirc_lme'  native EM von-Mises GLMM (MATLAB only;
 %                             default; recommended for most use)
 %              'brms'         Stan vM-GLMM (LOO order selection)
-%              'lme4'         frequentist sin/cos projected-Gaussian
 %              'bpnreg'       Bayesian projected-normal mixed model
 %            The R-backed backends require R + the named package on the
 %            machine; see the toolbox README's "Dependencies" section.
@@ -65,8 +64,6 @@ function result = circ_fit(tbl, formula, backend, varargin)
 %              .eval_ages   x-axis grid for the returned trajectory
 %              .Chains, .Iter, .Warmup, .Seed, .AdaptDelta  Stan
 %                                    sampler options (brms only)
-%              .Band        (true) include CI band in the lme4
-%                                    trajectory via bootMer
 %              .WorkDir     scratch dir for the R worker contract; if
 %                                    empty, a stable per-slice cache
 %                                    path is computed
@@ -117,19 +114,28 @@ backend = lower(char(backend));
 % the fourth positional argument).
 opts = parse_options(varargin);
 
-% --- Seed feature/order/x_col from the formula if not supplied ---
-[feat0, ord0] = parse_formula(formula);
-if ~isfield(opts,'feature') || isempty(opts.feature), opts.feature = feat0; end
-if ~isfield(opts,'x_col')   || isempty(opts.x_col),   opts.x_col   = 'Age'; end
-if ~isfield(opts,'Order')   || isempty(opts.Order),   opts.Order   = ord0;  end
-if ~isfield(opts,'MaxOrder')|| isempty(opts.MaxOrder),opts.MaxOrder= ord0;  end
+% --- Seed feature/order/x_col/categorical_varnames from the formula if
+% not supplied. Anything on the RHS that is not the polynomial-in-x_col
+% block and not the random-intercept term is treated as a categorical
+% main-effect covariate; callers can override by passing an explicit
+% categorical_varnames or by passing continuous_covariates for terms
+% that should be treated as continuous.
+if ~isfield(opts,'x_col') || isempty(opts.x_col), opts.x_col = 'Age'; end
+[feat0, ord0, cats0] = parse_formula(formula, opts.x_col);
+if ~isfield(opts,'feature') || isempty(opts.feature),  opts.feature  = feat0; end
+if ~isfield(opts,'Order')   || isempty(opts.Order),    opts.Order    = ord0;  end
+if ~isfield(opts,'MaxOrder')|| isempty(opts.MaxOrder), opts.MaxOrder = ord0;  end
 if ~isfield(opts,'Select'),  opts.Select = false; end
+if ~isfield(opts,'categorical_varnames') || isempty(opts.categorical_varnames)
+    cont = {}; if isfield(opts,'continuous_covariates') && ~isempty(opts.continuous_covariates), cont = cellstr(opts.continuous_covariates); end
+    opts.categorical_varnames = setdiff(cats0, cont, 'stable');
+end
 
 if strcmp(backend, 'fitcirc_lme')
     result = circ_fit_fitcirc(tbl, opts);
     return;
 end
-if ~ismember(backend, {'brms','lme4','bpnreg'})
+if ~ismember(backend, {'brms','bpnreg'})
     error('circ_fit:UnknownBackend', 'Unknown backend "%s".', backend);
 end
 
@@ -178,8 +184,7 @@ contract_opts = struct( ...
     'iter',       getopt(opts, 'Iter', 2000), ...
     'warmup',     getopt(opts, 'Warmup', 1000), ...
     'seed',       getopt(opts, 'Seed', 1), ...
-    'adapt_delta',getopt(opts, 'AdaptDelta', 0.95), ...
-    'band',       getopt(opts, 'Band', true));
+    'adapt_delta',getopt(opts, 'AdaptDelta', 0.95));
 meta = write_circ_contract(tbl, feature, order, work, contract_opts);
 
 cmd = sprintf('%s "%s" "%s" %s', rscript, worker, work, backend);
@@ -192,17 +197,62 @@ result = read_circ_result(work, backend, meta);
 end
 
 
-function [feature, order] = parse_formula(formula)
+function [feature, order, cats] = parse_formula(formula, x_col)
+% Pull from the Wilkinson formula the response name, the polynomial
+% order on the base predictor x_col, and the list of remaining RHS
+% terms (covariates / categoricals). The random-intercept block, the
+% literal `1`, polynomial-in-x_col terms, and any interaction-with-
+% x_col terms are removed; what's left is returned in `cats` so the
+% caller can forward them as categorical_varnames.
+if nargin < 2 || isempty(x_col), x_col = 'Age'; end
 formula = char(formula);
-ti = strfind(formula, '~');
+ti      = strfind(formula, '~');
 feature = strtrim(formula(1:ti(1)-1));
-pw = regexp(formula, '\^(\d+)', 'tokens');
-if ~isempty(pw)
-    order = max(cellfun(@(t) str2double(t{1}), pw));
-elseif ~isempty(regexp(formula, '\bAge\b', 'once'))
-    order = 1;
-else
-    order = 0;
+rhs     = formula(ti(1)+1:end);
+
+% Strip the random-intercept block(s) before tokenizing.
+rhs_noran = regexprep(rhs, '\([^)]*\|[^)]*\)', '');
+
+% Split on `+` and trim each piece.
+parts = strsplit(rhs_noran, '+');
+parts = cellfun(@strtrim, parts, 'UniformOutput', false);
+
+% Polynomial order: largest k where `x_col^k` appears; otherwise 1 if a
+% bare x_col token is present; otherwise 0.
+order = 0;
+poly_pat = ['^' regexptranslate('escape', x_col) '\^(\d+)$'];
+has_bare = false;
+for k = 1:numel(parts)
+    p = parts{k};
+    if isempty(p), continue; end
+    if strcmp(p, x_col), has_bare = true; continue; end
+    tok = regexp(p, poly_pat, 'tokens', 'once');
+    if ~isempty(tok)
+        order = max(order, str2double(tok{1}));
+    end
+end
+if order == 0 && has_bare, order = 1; end
+
+% Keep tokens that are valid variable names AND are not the intercept,
+% not the x_col main effect, not a polynomial in x_col, and not an
+% interaction. Anything left is a categorical / covariate main effect
+% the caller may forward as categorical_varnames.
+cats = {};
+for k = 1:numel(parts)
+    p = parts{k};
+    if isempty(p) || strcmp(p, '1') || strcmp(p, '0')
+        continue;
+    end
+    if strcmp(p, x_col) || ~isempty(regexp(p, poly_pat, 'once'))
+        continue;
+    end
+    % Drop products / interactions: x:y, x*y. Keep main effects only.
+    if any(ismember(p, ':*'))
+        continue;
+    end
+    if isvarname(p) && ~ismember(p, cats)
+        cats{end+1} = p; %#ok<AGROW>
+    end
 end
 end
 

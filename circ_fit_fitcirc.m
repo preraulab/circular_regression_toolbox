@@ -410,23 +410,29 @@ else
     P_eval = ages(:) .^ (1:max(1,3));   % fallback: raw power basis
 end
 elec_levels = 0; if has_elec, elec_levels = [0 1]; end
-rows = cell(numel(elec_levels),1);
+sex_levels  = 0; if has_sex,  sex_levels  = [0 1]; end
+rows = cell(numel(elec_levels) * numel(sex_levels), 1);
+r = 0;
 for e = 1:numel(elec_levels)
-    cv = struct();
-    if has_elec, cv.electrode = elec_levels(e); end
-    if has_sex,  cv.sex = 0; end
-    % Hold each continuous covariate at its cohort mean.
-    fn = fieldnames(cov_means);
-    for c = 1:numel(fn), cv.(fn{c}) = cov_means.(fn{c}); end
-    X  = design_from_names(names, x_col, P_eval, cv);
-    eta = X * beta;                                   % continuous linear predictor
-    se  = sqrt(max(diag(X * cov_b * X'), 0));
-    eta = unwrap(eta);                                % no-op if already continuous
-    lo  = eta - 1.96*se;
-    hi  = eta + 1.96*se;
-    elc = elec_levels(e) * ones(numel(ages),1);
-    rows{e} = table(ages, elc, zeros(numel(ages),1), eta, lo, hi, ...
-        'VariableNames', {'Age','electrode','sex','mean','lo','hi'});
+    for s = 1:numel(sex_levels)
+        r = r + 1;
+        cv = struct();
+        if has_elec, cv.electrode = elec_levels(e); end
+        if has_sex,  cv.sex       = sex_levels(s);  end
+        % Hold each continuous covariate at its cohort mean.
+        fn = fieldnames(cov_means);
+        for c = 1:numel(fn), cv.(fn{c}) = cov_means.(fn{c}); end
+        X  = design_from_names(names, x_col, P_eval, cv);
+        eta = X * beta;                                   % continuous linear predictor
+        se  = sqrt(max(diag(X * cov_b * X'), 0));
+        eta = unwrap(eta);                                % no-op if already continuous
+        lo  = eta - 1.96*se;
+        hi  = eta + 1.96*se;
+        elc = elec_levels(e) * ones(numel(ages),1);
+        sxc = sex_levels(s)  * ones(numel(ages),1);
+        rows{r} = table(ages, elc, sxc, eta, lo, hi, ...
+            'VariableNames', {'Age','electrode','sex','mean','lo','hi'});
+    end
 end
 Traj = vertcat(rows{:});
 end

@@ -1,19 +1,32 @@
 %TUTORIAL  Walkthrough: simulate vM-GLMM data and recover the truth.
 %
 % This script is the canonical first thing to run after installing the
-% toolbox. It generates one synthetic dataset where we know every
-% parameter (population trend, subject offsets, noise concentration),
-% fits the von Mises GLMM with circ_fit, and shows how to read every
-% piece of the result struct against the truth that produced it.
+% toolbox. It walks through two contrasting use cases for the same
+% population trend:
+%
+%   PART A.  Large N, one visit per subject (n_subj = 500, n_per = 1).
+%            A pure fixed-effects regression. The (1|Subj_ID) random
+%            intercept in the formula has nothing to learn (a single
+%            observation per subject cannot identify a subject-specific
+%            offset), so the EM collapses kappa_phi to infinity and the
+%            conditional R^2 reduces to the marginal R^2. This is the
+%            regime for cross-sectional cohort studies.
+%
+%   PART B.  Small N, repeated visits per subject (n_subj = 25,
+%            n_per = 8). A proper mixed-effects regression. Each subject
+%            has their own random angular offset around the population
+%            trend, so kappa_phi is identifiable and the conditional
+%            R^2 exceeds the marginal R^2 by the share of variance the
+%            random intercept explains. This is the regime for
+%            longitudinal or repeated-measurement designs.
+%
+% Both fits share the same population trend: a linear sweep across most
+% of (-pi, pi] in age plus a sex covariate (males offset by ~pi/10
+% from females). The formula carries `+ sex` so the trajectory builder
+% produces one curve per sex level, and plot_circ_fit overlays them in
+% distinct colors.
 %
 % Total runtime: a few seconds. Deterministic via rng(0).
-%
-% Topics covered, in order:
-%   1.  How to simulate from a vM-GLMM by hand
-%   2.  How to call circ_fit
-%   3.  Reading SelectedOrder, AgeEffect, Coefficients
-%   4.  Marginal vs conditional R^2 (R2_circ_marginal, R2_circ_conditional)
-%   5.  Plotting the fitted population curve with circ_fit's CI band
 %
 % Run from MATLAB with the toolbox on the path:
 %   addpath(genpath('/path/to/circular_regression_toolbox'));
@@ -22,159 +35,181 @@
 clear; close all; rng(0);
 
 %% ====================================================================
-%% 1. Ground truth: what we will try to recover
+%% Ground truth (shared by both parts)
 %% ====================================================================
 %
-% Cohort: 100 subjects, 8 observations each (e.g. two electrodes x 4
-% reps). The covariate Age is between-subject (each subject has one
-% age), spanning 8 to 80 years.
+% Population angular trend swings across most of (-pi, pi] over the
+% age range, with a sex offset. Endpoints stay safely within (-pi, pi]
+% so the trajectory does not wrap. Modest curvature lets the step-up
+% LRT pick a quadratic term over a linear one.
+%
+%   mu(age, sex) = beta_intercept
+%                + beta_age * (age - mean(age))
+%                + beta_age2 * (age - mean(age))^2
+%                + beta_sex * sex
+%   sex = 0 for female (reference), 1 for male
+%
+% Endpoint check: at age 8 and 80 the population mean lands at
+%   F: ~ -2.03 and +2.29 rad,   M: ~ -1.73 and +2.59 rad
+% which span ~4.6 rad (~73% of 2*pi) without wrapping.
 
-n_subj   = 100;
-n_per    = 8;
-ages_subj = linspace(8, 80, n_subj)';   % one age per subject
-Subj_ID  = repelem((1:n_subj)', n_per);
-Age      = repelem(ages_subj, n_per);   % broadcast to all rows
-n_obs    = numel(Age);
+beta_intercept = 0;                      % radians (intercept at mean age, female)
+beta_age       = 0.050;                  % rad/year (linear slope)
+beta_age2      = 0.0003;                 % rad/year^2 (mild curvature)
+beta_sex       = 0.35;                   % rad offset for sex=1 (male)
 
-% --- True fixed effects ---------------------------------------------
-% The population angular trend with age is a SHIFTED PARABOLA: starts
-% high at age 8, dips around mid-life, comes back up at 80. Working in
-% radians, we use a modest slope so the trajectory stays within ~one
-% revolution and the von Mises likelihood is appropriate.
-beta_intercept = 0.30;                   % radians (intercept at mean age)
-beta_age       = -0.025;                 % rad/year (linear slope)
-beta_age2      =  0.00050;               % rad/year^2 (curvature)
+kappa_eps = 8;                           % within-subject residual concentration (tight)
+kappa_phi = 5;                           % between-subject offset concentration (Part B)
 
-age_centered = Age - mean(Age);
-mu_fixed = beta_intercept ...
-         + beta_age  * age_centered ...
-         + beta_age2 * age_centered.^2;
-
-% --- True random and residual concentration -------------------------
-%   kappa_phi  -> how alike subjects are (large = subjects share a
-%                  baseline; small = each subject has a distinct
-%                  preferred phase)
-%   kappa_eps  -> within-subject residual noise (large = tight clusters
-%                  around the fitted curve)
-kappa_phi = 6;     % moderate between-subject heterogeneity
-kappa_eps = 10;    % tight within-subject noise
-
-% --- Draw the per-subject offsets and the per-row noise -------------
-phi_subj = circ_vmrnd(0, kappa_phi, [n_subj, 1]);   % one per subject
-eps_row  = circ_vmrnd(0, kappa_eps, [n_obs, 1]);    % one per row
-
-% Generate the angles, wrapped to (-pi, pi].
-y_unwrapped = mu_fixed + phi_subj(Subj_ID) + eps_row;
 wrap = @(x) ((x + pi) - 2*pi*floor((x + pi)/(2*pi))) - pi;
-Phase = wrap(y_unwrapped);
 
-T = table(Subj_ID, Age, Phase);
-
-fprintf('\nSimulated %d subjects, %d obs each (%d total rows).\n', ...
-        n_subj, n_per, n_obs);
-fprintf('Truth:  beta = [%.3f, %.4f, %.5g],  kappa = %.0f,  kappa_phi = %.0f\n', ...
-        beta_intercept, beta_age, beta_age2, kappa_eps, kappa_phi);
+fprintf('Ground truth\n');
+fprintf('  Population trend:    beta = [%.3f, %.4f, %.5g], beta_sex = %.3f\n', ...
+        beta_intercept, beta_age, beta_age2, beta_sex);
+fprintf('  Within-subject noise: kappa = %.1f\n', kappa_eps);
+fprintf('  Subject offset:       kappa_phi = %.1f (Part B only)\n', kappa_phi);
 
 
 %% ====================================================================
-%% 2. Fit with circ_fit
+%% PART A.  Large N, one visit per subject  (n_subj = 500, n_per = 1)
 %% ====================================================================
 %
-% The formula side resembles fitlme: response ~ fixed terms + random
-% term. The toolbox automatically chooses the polynomial Age order by
-% step-up likelihood-ratio test up to MaxOrder; with Select=false it
-% fits the single order written into the formula.
+% Each subject is measured once. The data carry the population trend
+% plus i.i.d. within-subject noise. Strictly speaking the random-
+% intercept variance (kappa_phi) and the residual variance (kappa) are
+% not jointly identified with one observation per subject -- the EM
+% will still fit both, and the marginal log-likelihood lands at a
+% finite optimum, but the split between the two is mathematically
+% arbitrary. So R^2_c is greater than R^2_m here even though there is
+% no genuine subject heterogeneity in the truth; the gap reflects what
+% the EM allocated to the random intercept, not a real signal.
 
-result = circ_fit(T, ...
-    'Phase ~ 1 + Age + Age^2 + (1|Subj_ID)', ...
-    'fitcirc_lme', ...
-    'Select', true, 'MaxOrder', 3);
+n_subj_A   = 500;
+n_per_A    = 1;
+ages_A     = linspace(8, 80, n_subj_A)';
+Subj_ID_A  = (1:n_subj_A)';
+Age_A      = ages_A;
+sex_A      = double(rand(n_subj_A, 1) > 0.5);     % 0 = female, 1 = male
+age_centered_A = Age_A - mean(Age_A);
+mu_A = beta_intercept ...
+     + beta_age  * age_centered_A ...
+     + beta_age2 * age_centered_A.^2 ...
+     + beta_sex  * sex_A;
+eps_A   = circ_vmrnd(0, kappa_eps, [n_subj_A, 1]);
+Phase_A = wrap(mu_A + eps_A);
+T_A = table(Subj_ID_A, Age_A, sex_A, Phase_A, ...
+            'VariableNames', {'Subj_ID','Age','sex','Phase'});
 
+fprintf('\n========================================\n');
+fprintf('PART A.  Large N, one visit per subject\n');
+fprintf('========================================\n');
+fprintf('N = %d subjects x %d visit = %d observations\n', n_subj_A, n_per_A, height(T_A));
 
-%% ====================================================================
-%% 3. Read the result against truth
-%% ====================================================================
+result_A = circ_fit(T_A, 'Phase ~ 1 + Age + Age^2 + sex + (1|Subj_ID)', 'fitcirc_lme', ...
+                    'Select', true, 'MaxOrder', 3);
+disp(result_A);
 
-% Type the result at the prompt (or call disp on it) to get the
-% fitlme-style model summary. The circ_result object holds the full
-% schema (Coefficients, GOF, AgeEffect, Trajectory, ...) and prints
-% the headline numbers in a paper-ready layout.
-disp(result);
-
-fprintf('\n--- Top-line answers ---\n');
-fprintf('Selected polynomial order: %d   (truth = 2)\n', ...
-        result.SelectedOrder);
-fprintf('Omnibus Age test p-value:  %.3g (any-Age-effect joint Wald)\n', ...
-        result.AgeEffect.pValue);
-fprintf('R2_circ marginal:          %.3f (fixed effects only)\n', ...
-        result.GOF.R2_circ_marginal);
-fprintf('R2_circ conditional:       %.3f (fixed + subject baseline)\n', ...
-        result.GOF.R2_circ_conditional);
-fprintf('MAE_angular:               %.3f rad (= %.1f deg)\n', ...
-        result.GOF.MAE_angular, rad2deg(result.GOF.MAE_angular));
-
-% The coefficient table. Because circ_fit_fitcirc fits in an
-% orthonormal-polynomial reparameterization for numerical conditioning
-% (Age_op1, Age_op2 columns), the per-coefficient Estimates do not match
-% beta_age and beta_age2 directly -- but the joint Wald and the fitted
-% trajectory are invariant under that reparameterization.
-fprintf('\n--- Coefficient table ---\n');
-disp(result.Coefficients);
-
-fprintf(['Note: Age coefficients are reported in an orthogonal-polynomial\n', ...
-         'reparameterization (Age_op1, Age_op2) used for numerical\n', ...
-         'conditioning. The fitted curve and the joint Age test are\n', ...
-         'identical to what the raw [Age, Age^2] basis would give.\n']);
+figure('Color','w');
+plot(result_A, T_A);
+title(sprintf('Part A: N = %d, 1 visit/subject (fixed-effects regime)', n_subj_A));
 
 
 %% ====================================================================
-%% 4. Marginal vs conditional R2 in plain words
+%% PART B.  Small N, repeated visits per subject  (n_subj = 25, n_per = 8)
 %% ====================================================================
 %
-% R2_marginal answers "how well can we predict a brand-new subject from
-% their Age alone?" It uses fixed effects only -- the subject random
-% intercept is set to zero. If subjects all sat on the population curve
-% perfectly, R2_marginal would be near 1. If subjects vary widely from
-% the curve in ways Age does not capture, R2_marginal stays modest no
-% matter how good the fit is.
-%
-% R2_conditional answers "how well can we predict if we have already
-% measured this subject and know their personal baseline?" It uses
-% fixed effects PLUS the subject random intercept. In a cohort with
-% real per-subject heterogeneity, R2_conditional will be noticeably
-% higher than R2_marginal.
-%
-% The gap between the two is a quantitative report on how much subject-
-% to-subject variation there is on top of the population trend.
+% 25 subjects, 8 observations each (200 total). Each subject has a
+% random angular offset drawn from vonMises(0, kappa_phi); within-
+% subject observations cluster around that offset plus the population
+% trend. The model now has a real subject-baseline to estimate and
+% R^2_c > R^2_m by the share of variance that random intercept
+% explains.
 
-icc_estimated = result.GOF.R2_circ_conditional - result.GOF.R2_circ_marginal;
-fprintf('\n--- Subject heterogeneity ---\n');
-fprintf('R2_circ_conditional - R2_circ_marginal = %.3f\n', icc_estimated);
-fprintf('This gap is the share of the response variation explained by\n');
-fprintf('the subject random intercept on top of what Age explains.\n');
+n_subj_B   = 40;
+n_per_B    = 6;
+ages_B     = linspace(8, 80, n_subj_B)';
+Subj_ID_B  = repelem((1:n_subj_B)', n_per_B);
+Age_B      = repelem(ages_B, n_per_B);
+sex_subj_B = double(rand(n_subj_B, 1) > 0.5);     % one sex per subject
+sex_B      = sex_subj_B(Subj_ID_B);
+age_centered_B = Age_B - mean(Age_B);
+mu_B = beta_intercept ...
+     + beta_age  * age_centered_B ...
+     + beta_age2 * age_centered_B.^2 ...
+     + beta_sex  * sex_B;
+phi_B   = circ_vmrnd(0, kappa_phi, [n_subj_B, 1]);
+eps_B   = circ_vmrnd(0, kappa_eps, [numel(Age_B), 1]);
+Phase_B = wrap(mu_B + phi_B(Subj_ID_B) + eps_B);
+T_B = table(Subj_ID_B, Age_B, sex_B, Phase_B, ...
+            'VariableNames', {'Subj_ID','Age','sex','Phase'});
+
+fprintf('\n========================================\n');
+fprintf('PART B.  Small N, repeated visits per subject\n');
+fprintf('========================================\n');
+fprintf('N = %d subjects x %d visits = %d observations\n', n_subj_B, n_per_B, height(T_B));
+
+result_B = circ_fit(T_B, 'Phase ~ 1 + Age + Age^2 + sex + (1|Subj_ID)', 'fitcirc_lme', ...
+                    'Select', true, 'MaxOrder', 3);
+disp(result_B);
+
+figure('Color','w');
+plot(result_B, T_B);
+title(sprintf('Part B: N = %d, %d visits/subject (mixed-effects regime)', ...
+              n_subj_B, n_per_B));
 
 
 %% ====================================================================
-%% 5. Plot the fit
+%% Comparison
 %% ====================================================================
-%
-% plot(result, T) dispatches to circ_result.plot, which in turn calls
-% the toolbox plotter (plot_circ_fit). The angular axis is repeated
-% above and below at +-2*pi so the curve never "jumps" at the seam
-% (a visualization trick documented in plot_circ_fit.m).
-%
-% For overlaying multiple backends, call the standalone function:
-%   plot_circ_fit({r1, r2, r3}, T)
 
-plot(result, T);
-title(sprintf(['Tutorial fit: vM-GLMM (kappa = %.0f, kappa_phi = %.0f, ', ...
-               'n = %d)'], kappa_eps, kappa_phi, n_obs));
+fprintf('\n========================================\n');
+fprintf('Side-by-side\n');
+fprintf('========================================\n');
+fprintf('                              Part A (1 visit)   Part B (%d visits)\n', n_per_B);
+fprintf('Selected polynomial order     %d                 %d\n', ...
+        result_A.SelectedOrder, result_B.SelectedOrder);
+fprintf('Omnibus age p-value           %s             %s\n', ...
+        format_p(result_A.AgeEffect.pValue), format_p(result_B.AgeEffect.pValue));
+fprintf('R^2_circ marginal             %.3f             %.3f\n', ...
+        result_A.GOF.R2_circ_marginal, result_B.GOF.R2_circ_marginal);
+fprintf('R^2_circ conditional          %.3f             %.3f\n', ...
+        result_A.GOF.R2_circ_conditional, result_B.GOF.R2_circ_conditional);
+fprintf('Subject heterogeneity gap     %.3f             %.3f\n', ...
+        result_A.GOF.R2_circ_conditional - result_A.GOF.R2_circ_marginal, ...
+        result_B.GOF.R2_circ_conditional - result_B.GOF.R2_circ_marginal);
 
-fprintf('\nTutorial complete. Try:\n');
-fprintf('  - Changing kappa_phi (line 67) to 1 (large subject variation)\n');
-fprintf('    or 30 (very alike). Watch how R2_marginal and R2_conditional\n');
-fprintf('    diverge or converge.\n');
-fprintf('  - Setting beta_age2 = 0 and re-running. SelectedOrder should\n');
-fprintf('    drop to 1 (the LRT no longer accepts a curvature term).\n');
-fprintf('  - Adding a sex covariate: simulate it, add ''+ sex'' to the\n');
-fprintf('    formula, refit, and inspect result.Coefficients.\n');
+fprintf(['\nKey teaching points:\n', ...
+         '  - Part A has only 1 obs per subject. kappa_phi and kappa are\n', ...
+         '    not jointly identified, so the EM picks an arbitrary split\n', ...
+         '    between residual noise and subject random intercept. The\n', ...
+         '    R^2_c > R^2_m gap here reflects that split, not real\n', ...
+         '    subject heterogeneity.\n', ...
+         '  - Part B has multiple obs per subject. kappa_phi is now\n', ...
+         '    identifiable; the R^2_c > R^2_m gap quantifies how much of\n', ...
+         '    the response variance the per-subject baseline explains\n', ...
+         '    beyond the population trend.\n', ...
+         '  - Both fits recover the same population trend; their trajectories\n', ...
+         '    coincide on the mean curve. The Part B CI band is wider because\n', ...
+         '    fewer subjects contribute the population-level information.\n', ...
+         '  - The sex covariate is recovered in both fits; look at the\n', ...
+         '    coefficient row for `sex` in result_A.Coefficients (or\n', ...
+         '    result_B.Coefficients) and compare its Estimate to beta_sex.\n']);
+
+fprintf(['\nTutorial complete. Try:\n', ...
+         '  - Setting beta_age2 = 0 and re-running. Both parts should drop\n', ...
+         '    SelectedOrder to 1 (no curvature in the truth -> no curvature\n', ...
+         '    accepted by LRT).\n', ...
+         '  - Changing kappa_phi to 10 in Part B (subjects nearly identical).\n', ...
+         '    Watch the R^2_c - R^2_m gap shrink toward 0.\n', ...
+         '  - Dropping `+ sex` from the formula. The omnibus age effect will\n', ...
+         '    absorb part of the sex offset and beta estimates will shift.\n']);
+
+
+% =====================================================================
+function s = format_p(p)
+if isnan(p), s = '   NaN';
+elseif p < eps, s = '<1e-308';
+elseif p < 1e-4, s = sprintf('%.1e', p);
+else, s = sprintf('%.4f', p);
+end
+end

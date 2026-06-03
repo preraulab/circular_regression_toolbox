@@ -22,7 +22,10 @@ function ax = plot_circ_fit(results, tbl, opts)
 %     .colors    Nx3 RGB rows, one per result (default: lines colormap)
 %     .labels    cellstr legend labels (default: each result's Backend)
 %
-% Electrode level 0 is drawn solid, level 1 dashed (if present).
+% Electrode level 0 is drawn solid, level 1 dashed (if present). Sex
+% level 0 keeps the result's base color; sex level 1 (if present) is
+% drawn in a lighter variant of the same color so a single fit produces
+% two visually distinguishable curves when sex is in the formula.
 
 if ~iscell(results), results = {results}; end
 N = numel(results);
@@ -38,39 +41,83 @@ labels  = getopt(opts, 'labels', cellfun(@(r) r.Backend, results, 'UniformOutput
 
 hold(ax, 'on');
 
-% --- data scatter (faint, triple-plotted) ---
+% --- data scatter (triple-plotted across the +-2*pi seam) ---
+% When the table carries a `sex` column, points are colored to match
+% the trajectory shades (sex=0 in the result's base color, sex=1 in
+% the lighter variant) so the scatter and the curves are visually
+% paired. Without a sex column the points are mid-grey.
 if do_scat && ~isempty(tbl) && all(ismember({x_col, feature}, tbl.Properties.VariableNames))
-    xs = tbl.(x_col); ys = tbl.(feature);
+    xs   = tbl.(x_col);
+    ys   = tbl.(feature);
     good = ~isnan(xs) & ~isnan(ys);
-    for off = [0, 2*pi, -2*pi]
-        scatter(ax, xs(good), ys(good) + off, 5, [.7 .7 .7], 'filled', ...
-            'MarkerFaceAlpha', 0.12, 'HandleVisibility', 'off');
+    base_col = colors(1, :);
+    if ismember('sex', tbl.Properties.VariableNames)
+        sex_col = double(tbl.sex);
+        light_col = 0.55 * base_col + 0.45 * [1 1 1];
+        is_f = good & (sex_col == 0);
+        is_m = good & (sex_col == 1);
+        for off = [0, 2*pi, -2*pi]
+            scatter(ax, xs(is_f), ys(is_f) + off, 14, base_col,  'filled', ...
+                'MarkerFaceAlpha', 0.45, 'MarkerEdgeColor', 'none', ...
+                'HandleVisibility', 'off');
+            scatter(ax, xs(is_m), ys(is_m) + off, 14, light_col, 'filled', ...
+                'MarkerFaceAlpha', 0.45, 'MarkerEdgeColor', 'none', ...
+                'HandleVisibility', 'off');
+        end
+    else
+        for off = [0, 2*pi, -2*pi]
+            scatter(ax, xs(good), ys(good) + off, 12, [.35 .35 .35], 'filled', ...
+                'MarkerFaceAlpha', 0.45, 'MarkerEdgeColor', 'none', ...
+                'HandleVisibility', 'off');
+        end
     end
 end
 
 % --- trajectories ---
-leg_h = gobjects(N,1);
+leg_h     = gobjects(0);
+leg_label = {};
 for i = 1:N
-    r = results{i};
+    r  = results{i};
     Tr = r.Trajectory;
-    col = colors(min(i,size(colors,1)), :);
-    elecs = unique(Tr.electrode(:))';
-    first_for_legend = true;
+    base_col = colors(min(i,size(colors,1)), :);
+    elecs    = unique(Tr.electrode(:))';
+    sexes    = unique(Tr.sex(:))';
     for e = elecs
-        sel = Tr.electrode == e;
-        x  = Tr.Age(sel);   [x, si] = sort(x);
-        m  = Tr.mean(sel);  m  = m(si);
-        lo = Tr.lo(sel);    lo = lo(si);
-        hi = Tr.hi(sel);    hi = hi(si);
-        style = '-'; if e == 1, style = '--'; end
-        for off = [0, 2*pi, -2*pi]
-            if plot_CI && any(hi ~= m)
-                patch(ax, [x(:); flipud(x(:))], [lo(:)+off; flipud(hi(:)+off)], col, ...
-                    'FaceAlpha', 0.12, 'EdgeColor', 'none', 'HandleVisibility', 'off');
+        for s = sexes
+            sel = Tr.electrode == e & Tr.sex == s;
+            if ~any(sel), continue; end
+            x  = Tr.Age(sel);   [x, si] = sort(x);
+            m  = Tr.mean(sel);  m  = m(si);
+            lo = Tr.lo(sel);    lo = lo(si);
+            hi = Tr.hi(sel);    hi = hi(si);
+            % Electrode -> line style. Sex -> color shade (sex level 1
+            % is a lighter variant of the base color so the two sex
+            % curves of a single fit are distinguishable but clearly
+            % related).
+            style = '-'; if e == 1, style = '--'; end
+            col   = base_col;
+            if s == 1, col = 0.55 * base_col + 0.45 * [1 1 1]; end
+            for off = [0, 2*pi, -2*pi]
+                if plot_CI && any(hi ~= m)
+                    patch(ax, [x(:); flipud(x(:))], [lo(:)+off; flipud(hi(:)+off)], col, ...
+                        'FaceAlpha', 0.12, 'EdgeColor', 'none', 'HandleVisibility', 'off');
+                end
+                h = plot(ax, x, m + off, style, 'Color', col, 'LineWidth', 1.6, ...
+                    'HandleVisibility', 'off');
+                if off == 0
+                    suffix = '';
+                    if numel(sexes) > 1
+                        if s == 0, suffix = ' (sex 0)';
+                        else,      suffix = ' (sex 1)'; end
+                    end
+                    if numel(elecs) > 1
+                        if e == 0, suffix = [suffix ' [elec 0]']; %#ok<AGROW>
+                        else,      suffix = [suffix ' [elec 1]']; end %#ok<AGROW>
+                    end
+                    leg_h(end+1)     = h;            %#ok<AGROW>
+                    leg_label{end+1} = [labels{i}, suffix]; %#ok<AGROW>
+                end
             end
-            h = plot(ax, x, m + off, style, 'Color', col, 'LineWidth', 1.6, ...
-                'HandleVisibility', 'off');
-            if first_for_legend && off == 0, leg_h(i) = h; first_for_legend = false; end
         end
     end
 end
@@ -80,7 +127,7 @@ xlabel(ax, x_col); ylabel(ax, sprintf('%s (rad)', strrep(feature,'_','\_')));
 grid(ax, 'on');
 valid = isgraphics(leg_h);
 if any(valid)
-    legend(ax, leg_h(valid), labels(valid), 'Location', 'best', 'Interpreter', 'none');
+    legend(ax, leg_h(valid), leg_label(valid), 'Location', 'best', 'Interpreter', 'none');
 end
 end
 

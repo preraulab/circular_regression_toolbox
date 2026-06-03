@@ -10,8 +10,8 @@ classdef circ_result < matlab.mixin.CustomDisplay
 %
 % The schema is the one validated by make_circ_result. Required fields
 % are always populated; optional fields default to empty when the
-% backend does not expose them (e.g. lme4 and bpnreg do not carry a
-% single coefficient vector, so .Coefficients is empty for those).
+% backend does not expose them (e.g. bpnreg does not carry a
+% single coefficient vector, so .Coefficients is empty for it).
 %
 % USAGE
 %   r = circ_fit(tbl, 'Phase ~ Age^2 + (1|Subj_ID)', 'fitcirc_lme', ...
@@ -120,6 +120,13 @@ methods
     % function: plot_circ_fit({r1, r2, ...}, tbl).
     if nargin < 2, tbl = table(); end
     if nargin < 3, opts = struct(); end
+    % Reuse the current figure / axes if the caller already has one
+    % open (so `figure(); plot(r, T)` lands in that figure rather
+    % than spawning a second blank one); otherwise gca opens a fresh
+    % figure as needed.
+    if ~isfield(opts, 'ax') || isempty(opts.ax)
+        opts.ax = gca;
+    end
     if nargout > 0
         ax = plot_circ_fit(obj, tbl, opts);
     else
