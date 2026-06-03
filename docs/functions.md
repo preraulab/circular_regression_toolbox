@@ -243,35 +243,39 @@ concentration $\kappa_\phi$ (large $\kappa_\phi$ = subjects are alike).
 
 **Algorithm — high level.** EM with a closed-form E-step.
 
-- *E-step (per subject $i$, given $\beta, \kappa, \kappa_\phi$).* Compute
-  $S_i = \sum_j \sin(y_{ij} - X_{ij}\beta)$,
-  $C_i = \sum_j \cos(y_{ij} - X_{ij}\beta)$,
-  then $K_{\text{post},i} = \sqrt{(\kappa C_i + \kappa_\phi)^2 + (\kappa S_i)^2}$
-  and $\mu_{\text{post},i} = \text{atan2}(\kappa S_i,\ \kappa C_i + \kappa_\phi)$.
-  The mean resultant length $\rho_i = A(K_{\text{post},i}) = I_1/I_0 \in [0,1)$
-  measures how sure we are of subject $i$'s offset (near 1 = very sure).
-- *M-step.*
-  - $\beta$: a circular regression (iteratively reweighted least squares)
-    with offset $\mu_{\text{post},i}$, weighting each observation by its
-    subject's $\rho_i$.
-  - $\kappa$: the mean resultant length of the residual angles (each
-    weighted by $\rho_i$), converted to a concentration.
-  - $\kappa_\phi$: maximize the exact one-dimensional objective
-    $n_\text{subj}\bigl(R_\phi\,k - \log I_0(k)\bigr) + \log\mathrm{prior}(k)$,
-    where $R_\phi = \mathrm{mean}_i\,\rho_i\cos\mu_{\text{post},i}$ measures
-    how tightly the estimated offsets bunch around 0. The prior keeps
-    $\kappa_\phi$ finite in the case $R_\phi \to 1$ (offsets all collapse to
-    0), which would otherwise drive $\kappa_\phi \to \infty$ and overflow the
-    log-likelihood. See `KappaPhiPrior`.
-- *Marginal log-likelihood* (exact, no approximation):
-  $\log p(y_i) = \log I_0(K_{\text{post},i}) - n_i \log(2\pi\,I_0(\kappa)) - \log I_0(\kappa_\phi)$,
-  reported unpenalized so it is comparable across nested models.
-- *Inference.* Cluster-robust ("sandwich") SEs on $\beta$ with each subject
-  as one cluster, built from the same $\rho_i$-weighted score. The bread is
-  the expected (Fisher) information $\kappa A(\kappa)\sum_{ij}\rho_i X_{ij}'X_{ij}$,
-  which is always positive-definite. Rescaled by
-  $\frac{m}{m-1}\cdot\frac{n-1}{n-p}$; tests use Student's $t$ with
-  $n_\text{subj} - 1$ degrees of freedom.
+**E-step** (per subject $i$, given $\beta$, $\kappa$, $\kappa_\phi$). Compute
+$S_i = \sum_j \sin(y_{ij} - X_{ij}\beta)$,
+$C_i = \sum_j \cos(y_{ij} - X_{ij}\beta)$,
+then $K_{i,\text{post}} = \sqrt{(\kappa C_i + \kappa_\phi)^2 + (\kappa S_i)^2}$
+and $\mu_{i,\text{post}} = \text{atan2}(\kappa S_i,\ \kappa C_i + \kappa_\phi)$.
+The mean resultant length $\rho_i = A(K_{i,\text{post}}) = I_1/I_0 \in [0,1)$
+measures how sure we are of subject $i$'s offset (near 1 = very sure).
+
+**M-step.**
+
+- $\beta$: a circular regression (iteratively reweighted least squares)
+  with offset $\mu_{i,\text{post}}$, weighting each observation by its
+  subject's $\rho_i$.
+- $\kappa$: the mean resultant length of the residual angles (each
+  weighted by $\rho_i$), converted to a concentration.
+- $\kappa_\phi$: maximize the exact one-dimensional objective
+  $n_{\text{subj}}\bigl(R_\phi\,k - \log I_0(k)\bigr) + \log\mathrm{prior}(k)$,
+  where $R_\phi = \mathrm{mean}_i\,\rho_i\cos\mu_{i,\text{post}}$ measures
+  how tightly the estimated offsets bunch around 0. The prior keeps
+  $\kappa_\phi$ finite in the case $R_\phi \to 1$ (offsets all collapse to
+  0), which would otherwise drive $\kappa_\phi \to \infty$ and overflow the
+  log-likelihood. See `KappaPhiPrior`.
+
+**Marginal log-likelihood** (exact, no approximation):
+$\log p(y_i) = \log I_0(K_{i,\text{post}}) - n_i \log(2\pi\,I_0(\kappa)) - \log I_0(\kappa_\phi)$,
+reported unpenalized so it is comparable across nested models.
+
+**Inference.** Cluster-robust ("sandwich") SEs on $\beta$ with each subject
+as one cluster, built from the same $\rho_i$-weighted score. The bread is
+the expected (Fisher) information $\kappa A(\kappa)\sum_{ij}\rho_i X_{ij}'X_{ij}$,
+which is always positive-definite. Rescaled by
+$\frac{m}{m-1}\cdot\frac{n-1}{n-p}$; tests use Student's $t$ with
+$n_{\text{subj}} - 1$ degrees of freedom.
 
 **Inputs.**
 
