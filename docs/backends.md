@@ -14,9 +14,9 @@ Pick by the criteria in the [chooser](#chooser) at the bottom of this page.
 **Model.** True von Mises generalized linear mixed model:
 
 $$
-y_{ij}\mid \beta, \phi_i, \kappa \sim \operatorname{vonMises}(X_{ij}\beta + \phi_i,\ \kappa),
+y_{ij}\mid \beta, \phi_i, \kappa \sim \text{vonMises}(X_{ij}\beta + \phi_i,\ \kappa),
 \qquad
-\phi_i \sim \operatorname{vonMises}(0,\ \kappa_\phi)
+\phi_i \sim \text{vonMises}(0,\ \kappa_\phi)
 $$
 
 Both the response noise and the subject offset are von Mises. That pairing
@@ -115,7 +115,7 @@ mean that wraps a full revolution. `cores = 1` slows sampling.
 ## lme4 — sin/cos parallel LMEs
 
 **Model.** Two parallel Gaussian LMMs: one on $\sin y$, one on $\cos y$.
-Reconstructed angle is $\operatorname{atan2}(\widehat{\sin y},\ \widehat{\cos y})$.
+Reconstructed angle is $\text{atan2}(\widehat{\sin y},\ \widehat{\cos y})$.
 This is the frequentist projected-Gaussian approach.
 
 **Fitter.** `lme4::lmer`, REML disabled (`REML = FALSE`).

@@ -39,7 +39,7 @@ There are two tiers:
 |---|---|---|---|
 | `R2_circ` | scalar | — | $1 - \text{SSE}_\text{circ} / \text{SST}_\text{circ}$ with circular dispersion $\sum(1 - \cos(\text{resid}))$. **Comparable across backends.** |
 | `R2_adj` | scalar | — | $1 - (1 - R^2)(n-1)/(n - n_\text{par})$ (only populated by `circ_fit_fitcirc`; absent for R backends). |
-| `MAE_angular` | scalar | radians | $\overline{\lvert\operatorname{wrap}(y - \widehat y)\rvert}$. **Comparable across backends.** |
+| `MAE_angular` | scalar | radians | $\overline{\lvert\text{wrap}(y - \widehat y)\rvert}$. **Comparable across backends.** |
 | `LogLikelihood` | scalar | log-units | Exact marginal LL (fitcirc_lme) / posterior log-density at the mean (brms) / sum of sin- and cos-component LLs (lme4) / marginal LL approximation (bpnreg). **Within-backend only** — likelihood families differ. |
 | `AIC` | scalar | — | $-2\,\text{LL} + 2k$. `NaN` for Bayesian backends if not natively computed. |
 | `BIC` | scalar | — | $-2\,\text{LL} + k\log n$. `NaN` for Bayesian backends if not natively computed. |

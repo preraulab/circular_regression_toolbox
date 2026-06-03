@@ -117,7 +117,7 @@ obj = fit_circ_method(tbl, formula, Name, Value, ...)
 - Under `'cboot'`, each picked subject is renumbered to a fresh unique ID so
   duplicates count as independent clusters in the random-intercept model.
 - $\beta$ aggregation is the **componentwise median** across successful
-  resamples; covariance is the empirical $\operatorname{cov}$ across them
+  resamples; covariance is the empirical $\text{cov}$ across them
   (MLE-style, `cov(..., 1)`). $t$, $p$ are then $\beta_\text{bag} / \text{SE}$
   on $n_\text{subj} - 1$ degrees of freedom.
 - If all resamples fail, the function warns and returns the legacy fit.
@@ -193,7 +193,7 @@ result = circ_fit_fitcirc(tbl, opts)
   $p < 0.05$; stop at the first non-significant step. Documented inline as
   matching the lme/blme path in `get_best_iterative_order.m`.
 - **Trajectory CI.** $\eta = X\beta$ on the evaluation grid; standard error
-  $\sqrt{\operatorname{diag}(X\,\Sigma_\beta\, X^\top)}$ with $\Sigma_\beta$
+  $\sqrt{\text{diag}(X\,\Sigma_\beta\, X^\top)}$ with $\Sigma_\beta$
   the cluster-robust sandwich; 95% CI is $\eta \pm 1.96\,\text{SE}$. The
   trajectory is unwrapped per electrode along the predictor.
 - **Age-effect test.** Joint Wald that the entire `ContrastIndex.x_age` block
@@ -229,8 +229,8 @@ mdl = fitcirc_lme(tbl, formula, Name, Value, ...)
 
 $$
 \begin{aligned}
-y_{ij}\mid \beta, \phi_i, \kappa &\sim \operatorname{vonMises}(X_{ij}\beta + \phi_i,\ \kappa) \\
-\phi_i &\sim \operatorname{vonMises}(0,\ \kappa_\phi)
+y_{ij}\mid \beta, \phi_i, \kappa &\sim \text{vonMises}(X_{ij}\beta + \phi_i,\ \kappa) \\
+\phi_i &\sim \text{vonMises}(0,\ \kappa_\phi)
 \end{aligned}
 $$
 
@@ -247,7 +247,7 @@ concentration $\kappa_\phi$ (large $\kappa_\phi$ = subjects are alike).
   $S_i = \sum_j \sin(y_{ij} - X_{ij}\beta)$,
   $C_i = \sum_j \cos(y_{ij} - X_{ij}\beta)$,
   then $K_{\text{post},i} = \sqrt{(\kappa C_i + \kappa_\phi)^2 + (\kappa S_i)^2}$
-  and $\mu_{\text{post},i} = \operatorname{atan2}(\kappa S_i,\ \kappa C_i + \kappa_\phi)$.
+  and $\mu_{\text{post},i} = \text{atan2}(\kappa S_i,\ \kappa C_i + \kappa_\phi)$.
   The mean resultant length $\rho_i = A(K_{\text{post},i}) = I_1/I_0 \in [0,1)$
   measures how sure we are of subject $i$'s offset (near 1 = very sure).
 - *M-step.*
@@ -321,7 +321,7 @@ concentration $\kappa_\phi$ (large $\kappa_\phi$ = subjects are alike).
 
 **Methods.**
 
-- `predict(newdata, 'Conditional', false)` — predicted angle $\widehat{y} = \operatorname{wrap}(X_\text{new}\beta)$.
+- `predict(newdata, 'Conditional', false)` — predicted angle $\widehat{y} = \text{wrap}(X_\text{new}\beta)$.
   With `'Conditional', true`, adds the subject random intercept $\widehat\phi_i$ from
   `PhiHat` (subject must be among `SubjectIDs`).
 - `coefTest(R)` — joint Wald test of $H_0:\ R\beta = 0$ using `cov_b`. `R` can be a contrast
@@ -451,8 +451,8 @@ shift value yourself.
 
 | Name | Type | Meaning |
 |---|---|---|
-| `theta_shift` | scalar | Circular mean of $y$, $\operatorname{atan2}(\overline{\sin y},\,\overline{\cos y})$, on $(-\pi,\pi]$. |
-| `y_shifted` | vector | $\operatorname{wrap}(y - \theta_\text{shift})$ on $(-\pi,\pi]$ (only computed if requested). |
+| `theta_shift` | scalar | Circular mean of $y$, $\text{atan2}(\overline{\sin y},\,\overline{\cos y})$, on $(-\pi,\pi]$. |
+| `y_shifted` | vector | $\text{wrap}(y - \theta_\text{shift})$ on $(-\pi,\pi]$ (only computed if requested). |
 
 **Side effects.** None.
 
@@ -497,7 +497,7 @@ backward-compatibility with old pipelines.
 | Name | Type | Meaning |
 |---|---|---|
 | `theta_star` | scalar | Shift on $(-\pi,\pi]$, optimized over a 0.5° grid (721 candidates). |
-| `y_shifted` | vector | $\operatorname{wrap}(y - \theta^*)$. |
+| `y_shifted` | vector | $\text{wrap}(y - \theta^*)$. |
 
 **Side effects.** None.
 
@@ -539,9 +539,9 @@ gof = circ_gof(y, yhat, n_par)
 
 | Field | Type | Meaning |
 |---|---|---|
-| `R2_circ` | scalar | $1 - \text{SSE}_\text{circ} / \text{SST}_\text{circ}$, where $\text{SSE}_\text{circ} = \sum (1 - \cos(\operatorname{wrap}(y - \widehat y)))$ and $\text{SST}_\text{circ} = \sum (1 - \cos(\operatorname{wrap}(y - \bar y_\text{circ})))$. |
+| `R2_circ` | scalar | $1 - \text{SSE}_\text{circ} / \text{SST}_\text{circ}$, where $\text{SSE}_\text{circ} = \sum (1 - \cos(\text{wrap}(y - \widehat y)))$ and $\text{SST}_\text{circ} = \sum (1 - \cos(\text{wrap}(y - \bar y_\text{circ})))$. |
 | `R2_adj` | scalar | $1 - (1 - R^2)\,(n-1)/(n - n_\text{par})$ when `n_par` is given, else `NaN`. |
-| `MAE_angular` | scalar | $\overline{\lvert\operatorname{wrap}(y - \widehat y)\rvert}$. |
+| `MAE_angular` | scalar | $\overline{\lvert\text{wrap}(y - \widehat y)\rvert}$. |
 
 **Side effects.** None.
 
@@ -594,7 +594,7 @@ conditioning + collinearity pathology in iterative estimators.
 
 **Notes.**
 - Build: $M = [x, x^2, ..., x^k]$; centered $M_c = M - \overline M$;
-  $[Q, R] = \operatorname{qr}(M_c, 0)$; $P = Q$; `info = {mean, R, k}`.
+  $[Q, R] = \text{qr}(M_c, 0)$; $P = Q$; `info = {mean, R, k}`.
 - Apply: $M_e$ from new $x$; $P_e = (M_e - \text{info.means})\,/\,\text{info.R}$.
 - Per the inline docstring, the fitted curve, joint Wald tests, $R^2$,
   residuals and prediction intervals are unchanged by switching to this
