@@ -65,7 +65,7 @@ result = circ_fit(tbl, formula, backend, opts)
   was originally written for. Override for other ranges.
 - For the `fitcirc_lme` backend specifically, `opts.Resample` chooses
   between `'none'` (default), `'cboot'` (cluster bootstrap), and `'sub80'`
-  (subject subsample); see `circ_fit_fitcirc` below.
+  (subject subsample); see `circular_regression` below.
 
 **Example.**
 ```matlab
@@ -131,7 +131,7 @@ disp(mdl.Coefficients);
 
 ---
 
-## circ_fit_fitcirc <a id="circ_fit_fitcirc"></a>
+## circular_regression <a id="circular_regression"></a>
 
 **Purpose.** `fitcirc_lme` backend adapter: orthogonal-polynomial design,
 optional LRT order selection, optional resampled inference, trajectory + 95%
@@ -144,7 +144,7 @@ result without parsing a Wilkinson formula.
 
 **Signature.**
 ```matlab
-result = circ_fit_fitcirc(tbl, opts)
+result = circular_regression(tbl, opts)
 ```
 
 **Inputs.**
@@ -205,7 +205,7 @@ result = circ_fit_fitcirc(tbl, opts)
 opts = struct('feature','Phase','x_col','Age','Select',true,'MaxOrder',2, ...
               'categorical_varnames',{{'electrode','sex'}}, ...
               'xcol_categorical_interactions',[true false]);
-result = circ_fit_fitcirc(tbl, opts);
+result = circular_regression(tbl, opts);
 ```
 
 ---
@@ -343,7 +343,7 @@ $n_{\text{subj}} - 1$ degrees of freedom.
   random slopes, no crossed grouping factors.
 - Cluster-robust sandwich SEs can under-cover with very small per-cluster
   $n_j$ (e.g. $n_j = 2$). For primary inference with very small clusters,
-  prefer the resample-based options through `circ_fit_fitcirc`.
+  prefer the resample-based options through `circular_regression`.
 - The `KappaPhiPrior` guards a boundary: when a variance component is zero
   the likelihood-ratio statistic does not follow the usual $\chi^2$
   (Stram & Lee 1994), and here the troublesome boundary is *zero* subject
@@ -622,7 +622,7 @@ P_eval = ortho_poly_basis((7:80)', 3, info);
 of raw fields from a backend, validates the required tier, fills the
 optional tier with defaults, and returns the canonical `circ_result`.
 
-**When to use.** From every backend adapter (`circ_fit_fitcirc`,
+**When to use.** From every backend adapter (`circular_regression`,
 `read_circ_result`) — and from any custom estimator you bolt on that should
 slot into the rest of the toolbox.
 

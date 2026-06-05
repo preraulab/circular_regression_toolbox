@@ -22,7 +22,7 @@ classdef circ_result < matlab.mixin.CustomDisplay
 %   fields = fieldnames(r); % list every populated field name
 %   s = struct(r);          % convert to a plain struct
 %
-% SEE ALSO  make_circ_result, circ_fit, circ_fit_fitcirc, plot_circ_fit.
+% SEE ALSO  make_circ_result, circ_fit, circular_regression, plot_circ_fit.
 
 properties
     % --- required schema fields ---
@@ -258,7 +258,7 @@ se    = get('SE',       nan(N,1));
 tval  = get('tStat',    nan(N,1));
 pval  = get('pValue',   nan(N,1));
 
-% circ_fit_fitcirc's result keeps {Name, Estimate, SE, pValue} and
+% circular_regression's result keeps {Name, Estimate, SE, pValue} and
 % drops tStat to match the uniform cross-backend schema. Compute
 % tStat as Estimate / SE wherever the table did not supply it so the
 % display block reports a t-like statistic for each coefficient.

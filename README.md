@@ -578,7 +578,7 @@ Detailed per-function docs in [`docs/functions.md`](docs/functions.md).
 |---|---|
 | [`circ_fit`](docs/functions.md#circ_fit) | Main entry point: dispatches to a backend and returns the uniform result struct. |
 | [`fit_circ_method`](docs/functions.md#fit_circ_method) | Lower-level dispatcher with cluster-bootstrap / subject-subsample bagging around `fitcirc_lme`. |
-| [`circ_fit_fitcirc`](docs/functions.md#circ_fit_fitcirc) | `fitcirc_lme` backend adapter: orthogonal-polynomial basis, order selection by LRT, trajectory + CI, GOF. |
+| [`circular_regression`](docs/functions.md#circular_regression) | `fitcirc_lme` backend adapter: orthogonal-polynomial basis, order selection by LRT, trajectory + CI, GOF. |
 | [`fitcirc_lme`](docs/functions.md#fitcirc_lme) | The core estimator: von Mises GLMM with subject random intercept, fit by exact EM, cluster-robust SEs. |
 | [`circ_fit_config`](docs/functions.md#circ_fit_config) | Process-global config (default backend, sampler opts, etc.). |
 | [`circ_center`](docs/functions.md#circ_center) | Canonical preprocessing: subtract the circular mean to place the seam in the data gap. |
@@ -603,7 +603,7 @@ circular_regression_toolbox/
 │   ├── backends.md            (the four backends side by side)
 │   └── result_schema.md       (field-by-field of the circ_result struct)
 ├── circ_fit.m                 (MATLAB-side dispatcher)
-├── circ_fit_fitcirc.m         (fitcirc_lme adapter)
+├── circular_regression.m         (fitcirc_lme adapter)
 ├── circ_fit_config.m          (process-global config factory)
 ├── fit_circ_method.m          (legacy / cboot / sub80 resample bagging)
 ├── fitcirc_lme.m              (the core EM von Mises GLMM)
@@ -713,7 +713,7 @@ The full per-test inventory is in [`docs/functions.md`](docs/functions.md#tests)
   along the predictor — the plotter then doesn't need break-at-jumps logic.
 - **Coefficient names.** Wilkinson grammar (`(Intercept)`, `Age`, `Age^2`,
   `Age^2:electrode`), uniform across backends; the R workers remap their
-  native names accordingly. Internally, `circ_fit_fitcirc` uses an
+  native names accordingly. Internally, `circular_regression` uses an
   orthogonal-polynomial reparameterization with names like `Age_op1`,
   `Age_op2` for numerical conditioning; the fitted curve and the joint
   Wald test are unchanged by this reparameterization (Wald is invariant under
@@ -728,7 +728,7 @@ callers should be aware of:
   cluster-robust ("sandwich") SEs in `fitcirc_lme` are correct asymptotically
   but can under-cover when each subject contributes only two observations.
   For primary inference with very small clusters, prefer the resample-based
-  options in `circ_fit_fitcirc`.
+  options in `circular_regression`.
 - **brms chains forced sequential.** When `Rscript` is launched from
   MATLAB's `system()`, parallel chain workers fail to initialize rstan, so
   `circ_fit_brms_impl.R` forces `cores = 1`. Slower than parallel sampling,

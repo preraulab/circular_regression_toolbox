@@ -1,7 +1,7 @@
-function result = circ_fit_fitcirc(tbl, opts)
+function result = circular_regression(tbl, opts)
 %CIRC_FIT_FITCIRC  Native EM von-Mises GLMM backend, in the uniform circ_fit schema.
 %
-%   result = circ_fit_fitcirc(tbl, opts)
+%   result = circular_regression(tbl, opts)
 %
 % Wraps fitcirc_lme into the common result struct (see make_circ_result).
 % Centers the response by its circular mean (circ_center), optionally
@@ -173,7 +173,7 @@ for i = 1:n_ord
     % letting the LRT below read the drop as "this order adds nothing"
     % (which would silently drop a real effect).
     if i > 1 && LLs(i) < LLs(i-1) - 1e-6
-        warning('circ_fit_fitcirc:nonMonotoneLL', ...
+        warning('circular_regression:nonMonotoneLL', ...
             ['Order %d log-likelihood (%.4f) fell below order %d (%.4f); ' ...
              'the EM did not converge. Consider a larger MaxIter.'], ...
             orders(i), LLs(i), orders(i-1), LLs(i-1));
@@ -283,7 +283,7 @@ if chosen_order >= 1 && isfield(chosen.ContrastIndex, 'x_age') && ~isempty(chose
         jt = chosen.coefTest('x_age');
         AgeEffect = struct('pValue', jt.pValue, 'stat', jt.Fstat, 'df', jt.df1, 'Method', 'Wald-F-circ');
     catch ME
-        warning('circ_fit_fitcirc:AgeEffect', 'Wald age-effect test failed: %s', ME.message);
+        warning('circular_regression:AgeEffect', 'Wald age-effect test failed: %s', ME.message);
     end
 end
 
@@ -441,7 +441,7 @@ end
 function fml = build_ortho_formula(order, x_col, feature, cats, intx, covs)
 % Wilkinson formula in the orthogonal-polynomial basis. Uses explicit
 % column names `<x_col>_op1`, `<x_col>_op2`, ..., `<x_col>_opK` (added to
-% the table by circ_fit_fitcirc before this call) instead of the
+% the table by circular_regression before this call) instead of the
 % polynomial syntax `Age^k` which fitlme would expand to a correlated
 % raw-power basis. cats are categorical main effects; covs are continuous
 % adjustment covariates; both enter as main effects (covs are not
@@ -492,7 +492,7 @@ for j = 1:p
         if ~isempty(tok)
             jj = str2double(tok{1}{1});
             if jj < 1 || jj > size(P_eval, 2)
-                error('circ_fit_fitcirc:OrthoDegree', ...
+                error('circular_regression:OrthoDegree', ...
                       'Coefficient "%s" requires basis degree %d but only %d available.', ...
                       ff, jj, size(P_eval,2));
             end
@@ -525,7 +525,7 @@ function r = normalize_resample(s)
 s = lower(char(s));
 if strcmp(s, 'legacy'), s = 'none'; end
 if ~ismember(s, {'none','cboot','sub80'})
-    error('circ_fit_fitcirc:BadResample', 'Resample must be none|cboot|sub80 (got %s).', s);
+    error('circular_regression:BadResample', 'Resample must be none|cboot|sub80 (got %s).', s);
 end
 r = s;
 end

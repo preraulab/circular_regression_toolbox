@@ -298,7 +298,7 @@ Joint Wald tests on a block of $r$ coefficients use an $F$-statistic with
 $(r, m - r)$ degrees of freedom (or equivalently $\chi^2_r$ in the
 large-$m$ limit). For the omnibus age block, the contrast indices live in
 `mdl.ContrastIndex.x_age` and are constructed automatically by
-`circ_fit_fitcirc` from the design column names; see `joint_test.m` for
+`circular_regression` from the design column names; see `joint_test.m` for
 the dispatch.
 
 ### 5.3 Caveats

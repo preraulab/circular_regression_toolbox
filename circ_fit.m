@@ -99,7 +99,7 @@ function result = circ_fit(tbl, formula, backend, varargin)
 % opts.BrmsFallback is true (the default). Set it to false to surface
 % the underlying R error instead.
 %
-% SEE ALSO  fitcirc_lme, circ_fit_fitcirc, make_circ_result,
+% SEE ALSO  fitcirc_lme, circular_regression, make_circ_result,
 %           plot_circ_fit, circ_vmrnd, tutorial.
 
 if nargin < 3 || isempty(backend), backend = 'fitcirc_lme'; end
@@ -132,7 +132,7 @@ if ~isfield(opts,'categorical_varnames') || isempty(opts.categorical_varnames)
 end
 
 if strcmp(backend, 'fitcirc_lme')
-    result = circ_fit_fitcirc(tbl, opts);
+    result = circular_regression(tbl, opts);
     return;
 end
 if ~ismember(backend, {'brms','bpnreg'})
@@ -147,7 +147,7 @@ catch ME
     if fallback
         warning('circ_fit:RFallback', ...
             '%s backend failed (%s); falling back to fitcirc_lme.', backend, ME.message);
-        result = circ_fit_fitcirc(tbl, opts);
+        result = circular_regression(tbl, opts);
     else
         rethrow(ME);
     end

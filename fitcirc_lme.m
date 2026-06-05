@@ -278,7 +278,7 @@ classdef fitcirc_lme
             % is recorded in ThetaShift and added back during predict().
             p.addParameter('AutoShift', false);
             p.addParameter('ThetaShift', []);    % override AutoShift with explicit value
-            % Warm-start support: callers (e.g. circ_fit_fitcirc's order
+            % Warm-start support: callers (e.g. circular_regression's order
             % loop) can pass a previous order's converged Beta + coefficient
             % names. We copy estimates by NAME into the new column basis
             % (columns absent from the prior fit start at 0), giving the
@@ -483,37 +483,60 @@ classdef fitcirc_lme
             phi_hat = mu_post;
             offset  = phi_hat(g_idx);
 
-            % --- Cluster-robust ("sandwich") SEs on beta ---
-            % beta is the solution of the rho-weighted circular score
-            %   sum_ij w_ij X_ij sin(r_ij) = 0,   w_ij = rho_i,
-            % and the sandwich is built from that same score, so its two
-            % halves ("bread" and "meat") both carry the weight w_ij.
-            r    = wrapToPi(y - X*beta - offset);
-            w_se = rho(g_idx);                     % per-obs working weights
-            % Bread: the expected (Fisher) information of the weighted
-            % score, A = kappa*A(kappa) * sum_ij w_ij X_ij' X_ij. Using the
-            % expected information A(kappa) (rather than the per-point
-            % cos(r_ij), which turns negative once a residual exceeds pi/2)
-            % keeps this matrix positive-definite, so its inverse is stable
-            % and the variances stay non-negative. The two forms agree on
-            % average, since cos(r_ij) averages to A(kappa).
-            Ak      = local_A(kappa);
-            XtW     = X' .* w_se(:)';              % p x n, rows scaled by w
-            A_bread = (kappa * Ak) * (XtW * X);
-            % Meat: cluster sums of the same weighted score.
-            B_meat  = zeros(n_par);
-            for i = 1:n_subj
-                idx_i = (g_idx == i);
-                u_i   = kappa * (X(idx_i,:)' * (w_se(idx_i) .* sin(r(idx_i))));
-                B_meat = B_meat + u_i * u_i';
+            % --- Cluster-robust SEs on beta from the MARGINAL score ---
+            % An earlier estimator built the sandwich "bread" from the
+            % CONDITIONAL Fisher information kappa*A(kappa)*sum_i rho_i X'X,
+            % i.e. the information about beta GIVEN each subject's offset.
+            % Conditioning on the plugged-in random effects badly overstates
+            % how tightly the data pin beta: as beta moves, every subject's
+            % offset moves with it and absorbs part of the change, which the
+            % conditional information ignores. That made Var(beta) far too
+            % small -- anti-conservative p-values, the more so the stronger
+            % the subject random intercept (it vanished as kappa_phi grew).
+            %
+            % Fix: the Huber-White sandwich for the MARGINAL MLE, each
+            % subject one cluster. Both halves use the marginal
+            % log-likelihood (random intercept integrated out exactly, the
+            % same closed form the EM maximizes), over theta = (beta, kappa,
+            % kappa_phi):
+            %   meat   B = sum_i s_i s_i',  s_i = d/dtheta log p(y_i | theta)
+            %   bread  A = -d^2/dtheta^2 sum_i log p(y_i)  + prior curvature
+            % The beta block of A^{-1} B A^{-1} is the variance with kappa
+            % and kappa_phi co-estimated. (Aside: the marginal beta-score
+            % s_i(beta) = kappa*rho_i*sum_j X_ij*sin(y_ij - X_ij*beta -
+            % mu_post_i) is exactly the old "meat" term -- the meat was
+            % already correct; only the bread was wrong.) Derivatives are
+            % central finite differences of the closed-form LL, O(q^2) cheap
+            % evaluations.
+            theta = [beta; kappa; kappa_phi];
+            q     = numel(theta);
+            f_subj = @(th) local_marginal_ll_subj(X, y, g_idx, n_subj, ...
+                             th(1:n_par), max(th(n_par+1), 1e-8), max(th(n_par+2), 1e-8));
+            hstep = 1e-5 * max(abs(theta), 1);
+            % Per-subject score matrix S (n_subj x q): S(i,j) = d ll_i/d th_j.
+            S = zeros(n_subj, q);
+            for j = 1:q
+                tp = theta; tp(j) = tp(j) + hstep(j);
+                tm = theta; tm(j) = tm(j) - hstep(j);
+                S(:, j) = (f_subj(tp) - f_subj(tm)) / (2 * hstep(j));
             end
-
-            A_inv  = A_bread \ eye(n_par);
-            V_rob  = A_inv * B_meat * A_inv;
+            B_meat = S' * S;
+            % Bread: observed information of the PENALIZED total LL. The
+            % kappa_phi prior curvature regularizes the sigma_phi -> 0
+            % boundary so A stays well-conditioned; the prior is a single
+            % non-cluster term, so it enters the bread only, not the meat.
+            f_tot_pen = @(th) sum(f_subj(th)) + ...
+                local_kphi_logprior(max(th(n_par+2), 1e-8), ...
+                                    opt.KappaPhiPrior, opt.KappaPhiPriorScale);
+            A_info = -local_num_hessian(f_tot_pen, theta, hstep);
+            A_inv  = pinv(A_info);
+            V_full = A_inv * B_meat * A_inv;
+            V_rob  = V_full(1:n_par, 1:n_par);
+            % Cameron-Miller finite-sample cluster correction, symmetrized.
             corr_factor = (n_subj / (n_subj - 1)) * ((n - 1) / (n - n_par));
-            V_rob  = corr_factor * V_rob;
+            V_rob = corr_factor * (V_rob + V_rob') / 2;
 
-            se_b   = sqrt(diag(V_rob));
+            se_b   = sqrt(max(diag(V_rob), 0));
             t_b    = beta ./ se_b;
             df_t   = n_subj - 1;
             p_b    = 2 * (1 - tcdf(abs(t_b), df_t));
@@ -583,7 +606,7 @@ classdef fitcirc_lme
             % predictor are both in the formula). We accept TWO
             % naming conventions:
             %   * orthogonal polynomial columns: `<base>_op<k>` with k
-            %     in 1..K (used by circ_fit_fitcirc when the basis was
+            %     in 1..K (used by circular_regression when the basis was
             %     pre-orthogonalized via ortho_poly_basis); these are
             %     ALL polynomial main effects of `<base>` -- no
             %     auto-expansion needed.
@@ -958,6 +981,55 @@ function kappa = local_kappa_from_R(R, N)
             kappa = max(kappa - 2/(N*kappa), 0);
         else
             kappa = (N-1)^3 * kappa / (N^3 + N);
+        end
+    end
+end
+
+
+% --------------------------------------------------------------------
+% Per-subject UNPENALIZED marginal log-likelihood (random intercept
+% integrated out exactly), returned as a column vector. sum(llv) equals
+% the scalar ll_data from local_marginal_ll at the same parameters, so the
+% two stay consistent. Used to build the marginal-MLE sandwich SEs.
+% --------------------------------------------------------------------
+function llv = local_marginal_ll_subj(X, y, g_idx, n_subj, beta, kappa, kappa_phi)
+    eta = X * beta;
+    llv = zeros(n_subj, 1);
+    for i = 1:n_subj
+        idx = (g_idx == i);
+        a   = y(idx) - eta(idx);
+        Cg  = sum(cos(a));  Sg = sum(sin(a));  ni = sum(idx);
+        Cx  = kappa*Cg + kappa_phi;  Sx = kappa*Sg;
+        llv(i) = local_logI0(sqrt(Cx*Cx + Sx*Sx)) ...
+                 - ni*(log(2*pi) + local_logI0(kappa)) ...
+                 - local_logI0(kappa_phi);
+    end
+end
+
+
+% --------------------------------------------------------------------
+% Symmetric numerical Hessian of a scalar function f at x, via central
+% differences with per-coordinate step h. Used for the marginal observed
+% information that forms the sandwich bread.
+% --------------------------------------------------------------------
+function H = local_num_hessian(f, x, h)
+    q  = numel(x);
+    H  = zeros(q);
+    f0 = f(x);
+    for i = 1:q
+        for j = i:q
+            if i == j
+                xp = x; xp(i) = xp(i) + h(i);
+                xm = x; xm(i) = xm(i) - h(i);
+                H(i,i) = (f(xp) - 2*f0 + f(xm)) / (h(i)^2);
+            else
+                xpp = x; xpp(i) = xpp(i)+h(i); xpp(j) = xpp(j)+h(j);
+                xpm = x; xpm(i) = xpm(i)+h(i); xpm(j) = xpm(j)-h(j);
+                xmp = x; xmp(i) = xmp(i)-h(i); xmp(j) = xmp(j)+h(j);
+                xmm = x; xmm(i) = xmm(i)-h(i); xmm(j) = xmm(j)-h(j);
+                val = (f(xpp) - f(xpm) - f(xmp) + f(xmm)) / (4*h(i)*h(j));
+                H(i,j) = val;  H(j,i) = val;
+            end
         end
     end
 end

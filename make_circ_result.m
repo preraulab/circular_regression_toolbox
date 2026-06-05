@@ -4,7 +4,7 @@ function result = make_circ_result(s)
 %   result = make_circ_result(s)
 %
 % Single source of truth for the schema every circular-regression backend
-% (circ_fit_fitcirc / circ_fit via R) must return. Pass a struct `s` with
+% (circular_regression / circ_fit via R) must return. Pass a struct `s` with
 % the fields below; missing optional fields are filled with defaults, and
 % the required tier is validated.
 %
