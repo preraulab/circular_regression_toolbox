@@ -277,11 +277,11 @@ GOF = struct( ...
 % --- Uniform age-effect test: joint Wald on the x_col block ---
 % Omnibus age effect: joint Wald that ALL age terms (polynomial main
 % effect + every age-interaction) are zero -> one "any age effect" p.
-AgeEffect = struct('pValue', NaN, 'stat', NaN, 'df', NaN, 'Method', 'Wald');
+AgeEffect = struct('pValue', NaN, 'stat', NaN, 'df', NaN, 'Method', 'Wald-F-circ');
 if chosen_order >= 1 && isfield(chosen.ContrastIndex, 'x_age') && ~isempty(chosen.ContrastIndex.x_age)
     try
         jt = chosen.coefTest('x_age');
-        AgeEffect = struct('pValue', jt.pValue, 'stat', jt.Fstat, 'df', jt.df1, 'Method', 'Wald');
+        AgeEffect = struct('pValue', jt.pValue, 'stat', jt.Fstat, 'df', jt.df1, 'Method', 'Wald-F-circ');
     catch ME
         warning('circ_fit_fitcirc:AgeEffect', 'Wald age-effect test failed: %s', ME.message);
     end

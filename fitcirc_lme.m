@@ -683,10 +683,23 @@ classdef fitcirc_lme
             V   = R * obj.cov_b * R';
             chi = Rb' * (V \ Rb);
             df  = size(R, 1);
-            out = struct('Fstat',  chi/df, ...
-                         'pValue', 1 - chi2cdf(chi, df), ...
+            % Cluster-robust small-sample reference: the Wald quadratic form
+            % scaled by its rank, W/df1, is referenced to F(df1, m-1) with
+            % m = number of subject clusters (obj.DFE = m-1), NOT to a
+            % chi-square. For df1 = 1 this is identically the two-sided
+            % t(m-1) used by the per-coefficient table, so the omnibus and
+            % single-coefficient tests agree; for df1 > 1 it supplies the
+            % finite-cluster correction a chi-square reference omits (the
+            % chi-square form is anti-conservative when m is small, the
+            % regime circular GLMMs are usually fit in). 'upper' evaluates
+            % the tail directly so extreme statistics do not underflow to a
+            % literal p = 0.
+            df2   = obj.DFE;                 % = n_subj - 1 (cluster df)
+            Fstat = chi / df;
+            out = struct('Fstat',  Fstat, ...
+                         'pValue', fcdf(Fstat, df, df2, 'upper'), ...
                          'df1',    df, ...
-                         'df2',    obj.DFE);
+                         'df2',    df2);
         end
 
 
