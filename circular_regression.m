@@ -19,6 +19,9 @@ function result = circular_regression(tbl, opts)
 %       a missing value in any of them are dropped; they are held at their
 %       cohort means when the trajectory is drawn. Categorical covariates
 %       (e.g. race) go in .categorical_varnames instead.
+%   .cluster_var (default '') column whose levels nest Subj_ID (e.g. a
+%       family ID); passed to fitcirc_lme as 'ClusterVar' so the robust
+%       standard errors cluster on it instead of on subjects.
 %   .KappaPhiPrior (default 'halfcauchy'), .KappaPhiPriorScale (default 8)
 %       passed straight to fitcirc_lme; these set the weakly-informative
 %       prior on the subject-spread concentration kappa_phi. The same
@@ -46,12 +49,13 @@ eval_ages = getopt(opts, 'eval_ages', (7:80)'); eval_ages = eval_ages(:);
 % fitcirc_lme. Defaults match fitcirc_lme's own defaults.
 kphi_prior = getopt(opts, 'KappaPhiPrior', 'halfcauchy');
 kphi_scale = getopt(opts, 'KappaPhiPriorScale', 8);
+cluster_var = getopt(opts, 'cluster_var', '');
 
 % --- Restrict to used columns and drop NaN rows ---
 % covs are included here so they survive the NaN-drop and reach the
 % design; rows missing any predictor (e.g. the few NaN AHI values) are
 % dropped so the design and response stay row-aligned.
-keep_cols = unique([{x_col, feature, 'Subj_ID'}, cats(:)', covs(:)'], 'stable');
+keep_cols = unique([{x_col, feature, 'Subj_ID', cluster_var}, cats(:)', covs(:)'], 'stable');
 keep_cols = keep_cols(ismember(keep_cols, tbl.Properties.VariableNames));
 sub = tbl(:, keep_cols);
 good = true(height(sub),1);
@@ -143,7 +147,7 @@ warm = struct('Beta', [], 'Names', {{}}, 'Kappa', [], 'KappaPhi', []);
 for i = 1:n_ord
     fml = [build_ortho_formula(orders(i), x_col, feature, cats, intx, covs) ' + (1|Subj_ID)'];
     m_cold = fit_one_order(sub, fml, theta_shift, resamp, B, keep_fr, ...
-                           struct('Beta',[],'Names',{{}}), kphi_prior, kphi_scale);
+                           struct('Beta',[],'Names',{{}}), kphi_prior, kphi_scale, cluster_var);
     if i == 1 || isempty(warm.Beta)
         m = m_cold;
     else
@@ -155,7 +159,7 @@ for i = 1:n_ord
         % higher order's log-likelihood will not fall below the lower
         % order's. Keep whichever of {cold, warm} reaches the higher LL.
         m_warm = fit_one_order(sub, fml, theta_shift, resamp, B, keep_fr, warm, ...
-                               kphi_prior, kphi_scale);
+                               kphi_prior, kphi_scale, cluster_var);
         if m_warm.LogLikelihood > m_cold.LogLikelihood
             m = m_warm;
         else
@@ -322,7 +326,7 @@ end
 
 % ===================== local helpers =====================
 
-function m = fit_one_order(sub, fml, theta_shift, resamp, B, keep_fr, warm, kphi_prior, kphi_scale)
+function m = fit_one_order(sub, fml, theta_shift, resamp, B, keep_fr, warm, kphi_prior, kphi_scale, cluster_var)
 % Fit one order with the given circular-mean shift; bag over subject
 % resamples when resamp is 'cboot' / 'sub80'. `warm` (optional) carries
 % the previous order's converged Beta/Names/Kappa/KappaPhi for warm-
@@ -331,8 +335,9 @@ function m = fit_one_order(sub, fml, theta_shift, resamp, B, keep_fr, warm, kphi
 if nargin < 7 || isempty(warm), warm = struct('Beta',[],'Names',{{}},'Kappa',[],'KappaPhi',[]); end
 if nargin < 8 || isempty(kphi_prior), kphi_prior = 'halfcauchy'; end
 if nargin < 9 || isempty(kphi_scale), kphi_scale = 8; end
+if nargin < 10, cluster_var = ''; end
 kphi_nv = {'KappaPhiPrior', kphi_prior, 'KappaPhiPriorScale', kphi_scale};
-nv = [{'ThetaShift', theta_shift}, kphi_nv];
+nv = [{'ThetaShift', theta_shift, 'ClusterVar', cluster_var}, kphi_nv];
 if ~isempty(warm.Beta) && ~isempty(warm.Names)
     nv = [nv, {'InitBeta', warm.Beta, 'InitBetaNames', warm.Names}];
 end
