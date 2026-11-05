@@ -176,7 +176,9 @@ classdef fitcirc_lme
 % STANDARD ERRORS
 % Standard errors on beta use a cluster-robust ("sandwich") estimator with
 % each subject treated as one cluster, so they remain valid even though a
-% subject's repeated observations are correlated. The sandwich is built
+% subject's repeated observations are correlated. With 'ClusterVar', a
+% coarser grouping that nests the subjects (e.g. family) is the cluster
+% instead, and m below is the number of those clusters. The sandwich is built
 % from the same rho-weighted circular score the M-step solves, and its
 % "bread" is the expected (Fisher) information
 %   kappa * A(kappa) * sum_ij rho_i * X_ij' * X_ij,
@@ -224,6 +226,8 @@ classdef fitcirc_lme
         BIC
         NumObservations
         NumSubjects
+        NumClusters
+        ClusterVar
         NumCoefficients
         ConvergedIn
         ConvergenceHistory
@@ -287,6 +291,12 @@ classdef fitcirc_lme
             % routinely converge to LL worse than the intercept-only fit.
             p.addParameter('InitBeta',      []);  % numeric vector (matching InitBetaNames)
             p.addParameter('InitBetaNames', {});  % cellstr of coefficient names
+            % Cluster for the robust covariance. Empty (default): the
+            % grouping variable, one cluster per subject. Otherwise a
+            % column whose levels nest the grouping variable (e.g. family
+            % ID when the random offset is per subject), so the standard
+            % errors also allow correlation between a cluster's subjects.
+            p.addParameter('ClusterVar', '');
             p.parse(varargin{:});
             opt = p.Results;
             if ~isempty(opt.InitSigma)
@@ -336,6 +346,19 @@ classdef fitcirc_lme
             [g_idx, g_levels] = grp2idx(grp);
             n      = length(y);
             n_subj = length(g_levels);
+            if isempty(opt.ClusterVar)
+                c_of_subj = (1:n_subj)';
+            else
+                assert(ismember(opt.ClusterVar, tbl.Properties.VariableNames), ...
+                    'fitcirc_lme:noClusterVar', 'cluster variable "%s" not found', opt.ClusterVar);
+                c_obs = grp2idx(tbl.(opt.ClusterVar));
+                n_per = accumarray(g_idx, c_obs, [n_subj 1], @(v) numel(unique(v)));
+                assert(all(n_per == 1), 'fitcirc_lme:clusterNotNested', ...
+                    'each level of "%s" must lie within one level of "%s"', groupVar, opt.ClusterVar);
+                c_of_subj = accumarray(g_idx, c_obs, [n_subj 1], @(v) v(1));
+                [~, ~, c_of_subj] = unique(c_of_subj);
+            end
+            n_clust = max(c_of_subj);
             n_par  = size(X, 2);
 
             % --- Initialize ---
@@ -520,7 +543,13 @@ classdef fitcirc_lme
                 tm = theta; tm(j) = tm(j) - hstep(j);
                 S(:, j) = (f_subj(tp) - f_subj(tm)) / (2 * hstep(j));
             end
-            B_meat = S' * S;
+            % Scores of subjects in the same cluster are summed, so the
+            % meat treats each cluster as one independent unit.
+            S_c = zeros(n_clust, q);
+            for j = 1:q
+                S_c(:, j) = accumarray(c_of_subj, S(:, j), [n_clust 1]);
+            end
+            B_meat = S_c' * S_c;
             % Bread: observed information of the PENALIZED total LL. The
             % kappa_phi prior curvature regularizes the sigma_phi -> 0
             % boundary so A stays well-conditioned; the prior is a single
@@ -533,12 +562,12 @@ classdef fitcirc_lme
             V_full = A_inv * B_meat * A_inv;
             V_rob  = V_full(1:n_par, 1:n_par);
             % Cameron-Miller finite-sample cluster correction, symmetrized.
-            corr_factor = (n_subj / (n_subj - 1)) * ((n - 1) / (n - n_par));
+            corr_factor = (n_clust / (n_clust - 1)) * ((n - 1) / (n - n_par));
             V_rob = corr_factor * (V_rob + V_rob') / 2;
 
             se_b   = sqrt(max(diag(V_rob), 0));
             t_b    = beta ./ se_b;
-            df_t   = n_subj - 1;
+            df_t   = n_clust - 1;
             p_b    = 2 * (1 - tcdf(abs(t_b), df_t));
 
             obj.Coefficients = table(colNames, beta, se_b, t_b, p_b, ...
@@ -565,6 +594,8 @@ classdef fitcirc_lme
             obj.LogPrior           = lp_kphi;
             obj.NumObservations    = n;
             obj.NumSubjects        = n_subj;
+            obj.NumClusters        = n_clust;
+            obj.ClusterVar         = opt.ClusterVar;
             obj.NumCoefficients    = n_par;
             obj.ConvergedIn        = it;
             obj.ConvergenceHistory = ll_trace(1:it);
@@ -717,7 +748,7 @@ classdef fitcirc_lme
             % regime circular GLMMs are usually fit in). 'upper' evaluates
             % the tail directly so extreme statistics do not underflow to a
             % literal p = 0.
-            df2   = obj.DFE;                 % = n_subj - 1 (cluster df)
+            df2   = obj.DFE;                 % = number of clusters - 1
             Fstat = chi / df;
             out = struct('Fstat',  Fstat, ...
                          'pValue', fcdf(Fstat, df, df2, 'upper'), ...
